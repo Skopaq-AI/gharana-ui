@@ -1,0 +1,6 @@
+{
+  "name": "GHARANA",
+  "description": "Agent-powered studio console for independent musicians running lyrics, Mix QC, A&R feedback, splits, mastering, and release operations with human approval checkpoints.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
