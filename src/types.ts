@@ -1,4 +1,4 @@
-export type Language = 'Telugu' | 'Tamil' | 'Hindi' | 'Punjabi' | 'Malayalam' | 'Kannada' | 'Bengali' | 'English';
+export type Language = 'Telugu' | 'Tamil' | 'Hindi' | 'Punjabi' | 'Malayalam' | 'Kannada' | 'Bengali' | 'English' | 'Multi-Language';
 
 export type CheckpointStatus = 'pending_artist_approval' | 'approved' | 'rejected' | 'modified';
 
@@ -214,4 +214,4 @@ export interface TrackItem {
   rawAgentPayloads: Record<string, any>;
 }
 
-export type ActiveTab = 'overview' | 'mix_qc' | 'ar_feedback' | 'lyrics' | 'splits' | 'release' | 'growth';
+export type ActiveTab = 'overview' | 'mix_qc' | 'ar_feedback' | 'lyrics' | 'splits' | 'release' | 'growth' | 'marketplace' | 'settings';

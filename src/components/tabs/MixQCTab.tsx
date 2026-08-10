@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { Sliders, Gauge, ShieldCheck, AlertTriangle, RefreshCw, Layers, CheckCircle2 } from 'lucide-react';
 import { TrackItem, PlatformCompliance } from '../../types';
 import { HumanCheckpointCard } from '../HumanCheckpointCard';
+import { PageHeader, SectionCard, SectionHeader, StatCard } from '../SectionPanel';
+import { PipelineProgressTracker } from '../PipelineProgressTracker';
 
 interface MixQCTabProps {
   track: TrackItem;
@@ -116,30 +118,27 @@ export const MixQCTab: React.FC<MixQCTabProps> = ({
   };
 
   return (
-    <div className="space-[#120e1b] space-y-6">
-      {/* Header Banner */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-6 glass-panel rounded-2xl border border-[#342847]">
-        <div>
-          <div className="flex items-center gap-2">
-            <Sliders className="w-5 h-5 text-[#f5b544]" />
-            <h2 className="font-serif text-xl font-bold text-[#f5efe6]">
-              Mix Quality Control & Mastering DSP
-            </h2>
-          </div>
-          <p className="text-xs text-[#a294b8] font-serif mt-1">
-            Real loudness, True Peak, and frequency spectrum verification before master lock.
-          </p>
-        </div>
+    <div className="space-y-6">
+      {/* Pipeline Track Completion Progress */}
+      <PipelineProgressTracker track={track} activeStage="mix_qc" />
 
-        <button
-          onClick={handleRunMixQc}
-          disabled={analyzing}
-          className="px-4 py-2.5 rounded-xl bg-[#241c33] hover:bg-[#342847] border border-[#f5b544]/40 text-xs font-semibold text-[#f5efe6] flex items-center gap-2 transition-all self-start md:self-auto"
-        >
-          <RefreshCw className={`w-4 h-4 text-[#f5b544] ${analyzing ? 'animate-spin' : ''}`} />
-          <span>{analyzing ? 'Running Mix QC DSP...' : 'Run Agent Mix QC Analysis'}</span>
-        </button>
-      </div>
+      {/* Standardized Page Header */}
+      <PageHeader
+        icon={Sliders}
+        title="Mix Quality Control & Mastering DSP"
+        description="Real loudness, True Peak, and frequency spectrum verification before master lock."
+        badge="EBU R128 Compliant"
+        action={
+          <button
+            onClick={handleRunMixQc}
+            disabled={analyzing}
+            className="px-4 py-2.5 rounded-xl bg-[#f2542d] hover:bg-[#ff7a4d] text-white font-mono text-xs font-bold transition-all shadow-md flex items-center gap-2"
+          >
+            <RefreshCw className={`w-4 h-4 ${analyzing ? 'animate-spin' : ''}`} />
+            <span>{analyzing ? 'Running Mix QC DSP...' : 'Run Agent Mix QC Analysis'}</span>
+          </button>
+        }
+      />
 
       {/* Human Approval Checkpoint */}
       {track.arAssessment && (
@@ -168,52 +167,52 @@ export const MixQCTab: React.FC<MixQCTabProps> = ({
           {/* Key Metrics HUD Cards */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             
-            <div className="p-4 rounded-xl glass-panel border border-[#342847]">
-              <span className="text-[10px] text-[#a294b8] font-mono-num uppercase block">
+            <div className="p-4 rounded-2xl bg-[#120e1b] border border-[#241c33] shadow-md space-y-1">
+              <span className="text-[10px] text-[#a294b8] font-mono uppercase block tracking-wider">
                 Integrated Loudness
               </span>
-              <div className="text-xl font-bold font-mono-num text-[#7fe3c0] mt-1">
+              <div className="text-lg font-bold font-mono text-[#43c9a0]">
                 {metrics?.integratedLufs !== undefined ? `${metrics.integratedLufs} LUFS` : 'Not measured'}
               </div>
-              <span className="text-[10px] text-[#6d6183] font-mono-num mt-1 block">
+              <span className="text-[10px] text-[#6d6183] font-mono block">
                 Target: -14.0 LUFS
               </span>
             </div>
 
-            <div className="p-4 rounded-xl glass-panel border border-[#342847]">
-              <span className="text-[10px] text-[#a294b8] font-mono-num uppercase block">
+            <div className="p-4 rounded-2xl bg-[#120e1b] border border-[#241c33] shadow-md space-y-1">
+              <span className="text-[10px] text-[#a294b8] font-mono uppercase block tracking-wider">
                 True Peak Level
               </span>
-              <div className={`text-xl font-bold font-mono-num mt-1 ${
-                metrics?.truePeakDbtp !== undefined && metrics.truePeakDbtp > -1.0 ? 'text-[#ff7a4d]' : 'text-[#f5efe6]'
+              <div className={`text-lg font-bold font-mono ${
+                metrics?.truePeakDbtp !== undefined && metrics.truePeakDbtp > -1.0 ? 'text-[#f2542d]' : 'text-[#f5efe6]'
               }`}>
                 {metrics?.truePeakDbtp !== undefined ? `${metrics.truePeakDbtp} dBTP` : 'Not measured'}
               </div>
-              <span className="text-[10px] text-[#6d6183] font-mono-num mt-1 block">
+              <span className="text-[10px] text-[#6d6183] font-mono block">
                 Max Limit: -1.0 dBTP
               </span>
             </div>
 
-            <div className="p-4 rounded-xl glass-panel border border-[#342847]">
-              <span className="text-[10px] text-[#a294b8] font-mono-num uppercase block">
+            <div className="p-4 rounded-2xl bg-[#120e1b] border border-[#241c33] shadow-md space-y-1">
+              <span className="text-[10px] text-[#a294b8] font-mono uppercase block tracking-wider">
                 Dynamic Range
               </span>
-              <div className="text-xl font-bold font-mono-num text-[#f5b544] mt-1">
+              <div className="text-lg font-bold font-mono text-[#ffd48a]">
                 {metrics?.dynamicRangeLu !== undefined ? `${metrics.dynamicRangeLu} LU` : 'Not measured'}
               </div>
-              <span className="text-[10px] text-[#6d6183] font-mono-num mt-1 block">
+              <span className="text-[10px] text-[#6d6183] font-mono block">
                 Ideal: 7 - 12 LU
               </span>
             </div>
 
-            <div className="p-4 rounded-xl glass-panel border border-[#342847]">
-              <span className="text-[10px] text-[#a294b8] font-mono-num uppercase block">
+            <div className="p-4 rounded-2xl bg-[#120e1b] border border-[#241c33] shadow-md space-y-1">
+              <span className="text-[10px] text-[#a294b8] font-mono uppercase block tracking-wider">
                 Stereo Correlation
               </span>
-              <div className="text-xl font-bold font-mono-num text-[#a56bd6] mt-1">
+              <div className="text-lg font-bold font-mono text-[#a56bd6]">
                 {metrics?.stereoWidth !== undefined ? `${metrics.stereoWidth}x` : 'Not measured'}
               </div>
-              <span className="text-[10px] text-[#6d6183] font-mono-num mt-1 block">
+              <span className="text-[10px] text-[#6d6183] font-mono block">
                 Mono Compatible
               </span>
             </div>
@@ -221,13 +220,20 @@ export const MixQCTab: React.FC<MixQCTabProps> = ({
           </div>
 
           {/* Real Measured Frequency Bins (6 Band Spectrum) */}
-          <div className="p-6 glass-panel rounded-2xl border border-[#342847]">
-            <h3 className="font-serif text-base font-semibold text-[#f5efe6] mb-1">
-              Frequency Energy Balance Profile
-            </h3>
-            <p className="text-xs text-[#a294b8] font-serif mb-6">
-              Real measured spectral energy per band relative to zero dBFS reference.
-            </p>
+          <div className="p-6 rounded-2xl bg-[#120e1b] border border-[#241c33] shadow-md space-y-4">
+            <div className="flex items-center gap-2.5 pb-3 border-b border-[#241c33]">
+              <div className="p-2 rounded-xl bg-[#ffd48a]/10 border border-[#ffd48a]/20 text-[#ffd48a]">
+                <Gauge className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="font-serif text-base font-bold text-[#f5efe6]">
+                  Frequency Energy Balance Profile
+                </h3>
+                <p className="font-mono text-xs text-[#a294b8]">
+                  Real measured spectral energy per band relative to zero dBFS reference.
+                </p>
+              </div>
+            </div>
 
             {metrics?.frequencyBins ? (
               <div className="space-y-4 font-mono-num text-xs">

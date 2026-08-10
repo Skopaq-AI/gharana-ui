@@ -28,6 +28,7 @@ import {
   SplitSheetWire
 } from '../../types';
 import { HumanCheckpointCard } from '../HumanCheckpointCard';
+import { PageHeader, SectionCard, SectionHeader, StatCard } from '../SectionPanel';
 
 interface SplitsTabProps {
   track: TrackItem;
@@ -268,41 +269,28 @@ export const SplitsTab: React.FC<SplitsTabProps> = ({
   };
 
   return (
-    <div className="space-y-8">
-      {/* Top Banner & Info Header */}
-      <div className="p-6 glass-panel rounded-3xl border border-[#342847] bg-[#0d0a14]/90 space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2.5">
-              <Shield className="w-6 h-6 text-[#43c9a0]" />
-              <h1 className="font-serif text-2xl font-bold text-[#f5efe6] tracking-tight">
-                RIGHTS & SPLITS GOVERNANCE
-              </h1>
-              <span className="px-2.5 py-0.5 rounded-full bg-[#43c9a0]/20 text-[#43c9a0] border border-[#43c9a0]/30 text-[10px] font-mono uppercase tracking-widest">
-                Copyright Act 1957
-              </span>
-            </div>
-            <p className="text-xs text-[#a294b8] font-serif italic">
-              "Two separate copyrights exist in every song and must never be conflated: Composition (Publishing) and Sound Recording (Master). Each side MUST sum to exactly 100%."
-            </p>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => {
-                const wire = buildSplitSheetWirePayload();
-                onInspectRaw('SplitSheet Wire Payload (Standard Schema)', wire);
-              }}
-              className="px-3.5 py-2 rounded-xl bg-[#241c33] hover:bg-[#342847] text-[#ffd48a] border border-[#f5b544]/30 text-xs font-serif flex items-center gap-1.5 transition-colors"
-            >
-              <Code2 className="w-3.5 h-3.5 text-[#ffd48a]" />
-              <span>Inspect Wire JSON</span>
-            </button>
-          </div>
-        </div>
-
+    <div className="space-y-6">
+      {/* Standardized Page Header */}
+      <PageHeader
+        icon={Shield}
+        title="Rights & Split Governance"
+        description="Two separate copyrights (Composition & Recording Master) legally enforced to exactly 100%."
+        badge="Copyright Act 1957"
+        action={
+          <button
+            onClick={() => {
+              const wire = buildSplitSheetWirePayload();
+              onInspectRaw('SplitSheet Wire Payload (Standard Schema)', wire);
+            }}
+            className="px-4 py-2.5 rounded-xl bg-[#191324] hover:bg-[#241c33] text-[#ffd48a] border border-[#342847] font-mono text-xs font-bold transition-all flex items-center gap-2"
+          >
+            <Code2 className="w-4 h-4 text-[#ffd48a]" />
+            <span>Inspect Wire JSON</span>
+          </button>
+        }
+      >
         {/* Global Legal Validation Status Strip */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           {/* Composition Status */}
           <div className={`p-3 rounded-2xl border flex items-center justify-between ${
             isCompValid
@@ -347,7 +335,7 @@ export const SplitsTab: React.FC<SplitsTabProps> = ({
             </span>
           </div>
         </div>
-      </div>
+      </PageHeader>
 
       {/* Catalog Registry Numbers Bar */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

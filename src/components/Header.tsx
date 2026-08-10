@@ -52,124 +52,125 @@ export const Header: React.FC<HeaderProps> = ({
   }, []);
 
   return (
-    <header className="sticky top-0 z-40 glass-panel border-b border-[#342847]/60 bg-[#08060d]/85 px-4 md:px-8 py-3.5 backdrop-blur-xl">
-      <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-4">
-        {/* Brand & Raga Clock */}
-        <div className="flex items-center justify-between md:justify-start gap-6">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-[#f2542d] rounded-sm transform rotate-45 shadow-lg shadow-[#f2542d]/30 flex items-center justify-center">
-              <Radio className="w-4 h-4 text-[#08060d] transform -rotate-45 font-bold" />
+    <header className="sticky top-0 z-40 border-b border-[#241c33] bg-[#08060d]/90 backdrop-blur-xl px-4 md:px-6 py-3">
+      <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
+        
+        {/* Left Side: Brand & Track Selector */}
+        <div className="flex items-center gap-4 min-w-0">
+          {/* Studio Brand */}
+          <div className="flex items-center gap-2.5 flex-shrink-0">
+            <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-[#f2542d] to-[#ffd48a] flex items-center justify-center shadow-md shadow-[#f2542d]/20">
+              <Radio className="w-4 h-4 text-[#08060d] font-bold" />
             </div>
-
-            <div>
+            <div className="hidden sm:block">
               <div className="flex items-center gap-2">
-                <h1 className="font-serif text-xl tracking-[0.2em] font-light uppercase text-[#f5efe6]">
+                <span className="font-serif font-bold text-base tracking-wider text-[#f5efe6]">
                   GHARANA
-                </h1>
-                <span className="text-[10px] font-mono-num px-2 py-0.5 rounded bg-[#241c33] text-[#ffd48a] border border-[#f5b544]/30">
+                </span>
+                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[#1f182d] text-[#ffd48a] border border-[#342847]">
                   v2.5
                 </span>
               </div>
-              <p className="text-[10px] text-[#a294b8] font-serif italic tracking-wide">
-                "the label you never signed with"
-              </p>
             </div>
           </div>
 
-          {/* Night Raga Time Pill */}
-          <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#120e1b] border border-[#342847] text-xs">
-            <Clock className="w-3.5 h-3.5 text-[#f5b544]" />
-            <span className="font-mono-num text-[#f5efe6]">{timeString}</span>
-            <span className="text-[#6d6183]">|</span>
-            <span className="font-serif text-[#ffd48a]">{ragaInfo.name}</span>
-            <span className="text-[10px] text-[#a294b8] font-mono-num">({ragaInfo.timeOfDay})</span>
-          </div>
-        </div>
+          <span className="hidden sm:inline text-[#342847]">|</span>
 
-        {/* Track Selector & Action Bar */}
-        <div className="flex items-center gap-3 justify-between md:justify-end">
-          {/* Track Dropdown */}
-          <div className="relative flex-1 md:flex-initial">
+          {/* Track Selection Dropdown */}
+          <div className="relative min-w-0">
             <button
               onClick={() => setDropdownOpen(!dropdownOpen)}
-              className="w-full md:w-auto flex items-center justify-between gap-3 px-4 py-2 rounded-xl bg-[#120e1b] hover:bg-[#191324] border border-[#342847] text-xs font-sans text-[#f5efe6] transition-all"
+              className="flex items-center gap-2.5 px-3 py-1.5 rounded-xl bg-[#120e1b] hover:bg-[#1a1426] border border-[#241c33] hover:border-[#342847] text-xs font-sans text-[#f5efe6] transition-all"
             >
-              <div className="flex items-center gap-2.5 text-left truncate">
-                <Music2 className="w-4 h-4 text-[#ff7a4d] flex-shrink-0" />
-                <div className="truncate">
-                  <span className="font-serif font-medium text-sm block truncate">
-                    {activeTrack.title}
-                  </span>
-                  <span className="text-[10px] text-[#a294b8] font-mono-num block">
-                    {activeTrack.language} • {activeTrack.genre}
-                  </span>
-                </div>
+              <Music2 className="w-3.5 h-3.5 text-[#f2542d] flex-shrink-0" />
+              <div className="text-left truncate">
+                <span className="font-serif font-semibold text-xs text-[#f5efe6] block truncate">
+                  {activeTrack.title}
+                </span>
               </div>
-              <ChevronDown className={`w-4 h-4 text-[#a294b8] transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
+              <span className="hidden md:inline-block px-2 py-0.5 rounded bg-[#08060d] text-[10px] font-mono text-[#a294b8] border border-[#241c33]">
+                {activeTrack.language}
+              </span>
+              <ChevronDown className={`w-3.5 h-3.5 text-[#a294b8] transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
             </button>
 
             {/* Dropdown Menu */}
             {dropdownOpen && (
-              <div className="absolute right-0 mt-2 w-72 glass-panel rounded-xl border border-[#342847] bg-[#0d0a14]/95 shadow-2xl py-2 z-50">
-                <div className="px-3 py-1.5 text-[10px] font-mono-num text-[#a294b8] uppercase tracking-wider border-b border-[#241c33]">
-                  Active Studio Vault Tracks
+              <div className="absolute left-0 mt-2 w-72 bg-[#120e1b] rounded-2xl border border-[#342847] shadow-2xl py-2 z-50">
+                <div className="px-3.5 py-1.5 text-[10px] font-mono text-[#a294b8] uppercase tracking-wider border-b border-[#241c33]">
+                  Active Studio Tracks
                 </div>
-                {tracks.map((t) => (
-                  <button
-                    key={t.id}
-                    onClick={() => {
-                      onSelectTrack(t);
-                      setDropdownOpen(false);
-                    }}
-                    className={`w-full text-left px-3 py-2.5 hover:bg-[#191324] flex items-center justify-between transition-colors ${
-                      t.id === activeTrack.id ? 'bg-[#241c33]/60 border-l-2 border-[#f2542d]' : ''
-                    }`}
-                  >
-                    <div>
-                      <p className="font-serif text-xs font-medium text-[#f5efe6]">{t.title}</p>
-                      <p className="text-[10px] text-[#a294b8] font-mono-num">{t.artist} • {t.language}</p>
-                    </div>
-                    {t.audioMetrics?.integratedLufs && (
-                      <span className="text-[10px] font-mono-num text-[#7fe3c0]">
-                        {t.audioMetrics.integratedLufs} LUFS
-                      </span>
-                    )}
-                  </button>
-                ))}
+                <div className="max-h-64 overflow-y-auto">
+                  {tracks.map((t) => (
+                    <button
+                      key={t.id}
+                      onClick={() => {
+                        onSelectTrack(t);
+                        setDropdownOpen(false);
+                      }}
+                      className={`w-full text-left px-3.5 py-2.5 hover:bg-[#1a1426] flex items-center justify-between transition-colors ${
+                        t.id === activeTrack.id ? 'bg-[#1a1426] border-l-2 border-[#f2542d] text-[#ffd48a]' : 'text-[#f5efe6]'
+                      }`}
+                    >
+                      <div className="truncate pr-2">
+                        <p className="font-serif text-xs font-medium truncate">{t.title}</p>
+                        <p className="text-[10px] text-[#a294b8] font-mono">{t.artist} • {t.language}</p>
+                      </div>
+                      {t.audioMetrics?.integratedLufs && (
+                        <span className="text-[10px] font-mono text-[#43c9a0] flex-shrink-0">
+                          {t.audioMetrics.integratedLufs} LUFS
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
           </div>
+        </div>
 
-          {/* Mobile Approval View Button */}
-          {onOpenMobileApproval && (
-            <button
-              onClick={onOpenMobileApproval}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#25D366]/20 hover:bg-[#25D366]/30 border border-[#25D366]/40 text-xs font-mono text-[#25D366] transition-all flex-shrink-0"
-              title="Test Single-Stage Mobile WhatsApp Approval View"
-            >
-              <Smartphone className="w-4 h-4 text-[#25D366]" />
-              <span className="hidden sm:inline">Mobile Nudge</span>
-            </button>
-          )}
+        {/* Right Side: Status Badges & Direct Actions */}
+        <div className="flex items-center gap-2.5 flex-shrink-0">
+          
+          {/* Subtle Studio Clock */}
+          <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#120e1b] border border-[#241c33] text-xs font-mono text-[#a294b8]">
+            <Clock className="w-3.5 h-3.5 text-[#ffd48a]" />
+            <span className="text-[#f5efe6]">{timeString}</span>
+            <span>•</span>
+            <span className="text-[#ffd48a] font-serif text-[11px]">{ragaInfo.name}</span>
+          </div>
 
-          {/* Pending Checkpoints Badge */}
+          {/* Pending Sign-offs Indicator */}
           {pendingCheckpointsCount > 0 && (
-            <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#191324] border border-[#f2542d]/50 text-xs text-[#ff7a4d] ember-pulse flex-shrink-0">
-              <Flame className="w-4 h-4 text-[#f2542d]" />
-              <span className="font-mono-num font-bold">{pendingCheckpointsCount}</span>
-              <span className="hidden sm:inline font-sans">Pending Sign-off</span>
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#f2542d]/10 border border-[#f2542d]/30 text-xs font-mono text-[#f2542d]">
+              <Flame className="w-3.5 h-3.5 text-[#f2542d]" />
+              <span className="font-bold">{pendingCheckpointsCount}</span>
+              <span className="hidden sm:inline">Checkpoints</span>
             </div>
           )}
 
-          {/* New Track Button */}
+          {/* WhatsApp Mobile Approval Trigger */}
+          {onOpenMobileApproval && (
+            <button
+              onClick={onOpenMobileApproval}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#25D366]/10 hover:bg-[#25D366]/20 border border-[#25D366]/30 text-xs font-mono text-[#25D366] transition-all"
+              title="Test Single-Stage WhatsApp Mobile Approval"
+            >
+              <Smartphone className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">WhatsApp Nudge</span>
+            </button>
+          )}
+
+          {/* Primary Action Button */}
           <button
             onClick={onNewTrack}
-            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-[#f2542d] hover:bg-[#ff7a4d] text-xs font-semibold text-[#08060d] transition-all shadow-md shadow-[#f2542d]/20 flex-shrink-0"
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-[#f2542d] hover:bg-[#ff7a4d] text-white font-mono font-bold text-xs shadow-lg shadow-[#f2542d]/20 transition-all"
           >
-            <Plus className="w-4 h-4" />
-            <span className="hidden sm:inline">Ingest New Track</span>
+            <Plus className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Ingest Track</span>
           </button>
         </div>
+
       </div>
     </header>
   );

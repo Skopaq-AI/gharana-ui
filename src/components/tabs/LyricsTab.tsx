@@ -21,6 +21,8 @@ import {
 } from 'lucide-react';
 import { TrackItem, LyricDraftWire } from '../../types';
 import { HumanCheckpointCard } from '../HumanCheckpointCard';
+import { PageHeader, SectionCard, SectionHeader, StatCard } from '../SectionPanel';
+import { PipelineProgressTracker } from '../PipelineProgressTracker';
 import {
   INDIC_LYRIC_PRESETS,
   LanguagePreset,
@@ -361,52 +363,40 @@ export const LyricsTab: React.FC<LyricsTabProps> = ({
   };
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       
-      {/* Top Header & Dialect Controls Bar */}
-      <div className="p-6 glass-panel rounded-3xl border border-[#342847] bg-[#0d0a14]/90 space-y-6">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2.5">
-              <BookOpen className="w-6 h-6 text-[#f2542d]" />
-              <h1 className="font-serif text-2xl font-bold tracking-tight text-[#f5efe6]">
-                LYRIC STUDIO
-              </h1>
-              <span className="px-2.5 py-0.5 rounded-full bg-[#f2542d]/20 text-[#f2542d] border border-[#f2542d]/30 text-[10px] font-mono uppercase tracking-widest">
-                Co-Writer Engine
-              </span>
-            </div>
-            <p className="text-xs text-[#a294b8] font-serif italic">
-              "A page for creation, not a gate for review. Native scripts as primary text, dialect nuances, and prosody meter weight."
-            </p>
-          </div>
+      {/* Pipeline Track Completion Progress */}
+      <PipelineProgressTracker track={track} activeStage="lyrics" />
 
-          <div className="flex flex-wrap items-center gap-3">
-            {/* Save Button */}
+      {/* Standardized Page Header */}
+      <PageHeader
+        icon={BookOpen}
+        title="Lyric Studio & Indic Prosody Engine"
+        description="Native Indic scripts as primary text, dialect nuances, and real-time syllabic meter tracking."
+        badge="Prosody V2"
+        action={
+          <div className="flex items-center gap-3">
             <button
               onClick={handleSaveDraft}
-              className="px-4 py-2 rounded-xl bg-[#f2542d] hover:bg-[#ff7a4d] text-[#ffffff] font-semibold text-xs tracking-wider uppercase transition-all shadow-lg shadow-[#f2542d]/20 flex items-center gap-2"
+              className="px-4 py-2.5 rounded-xl bg-[#f2542d] hover:bg-[#ff7a4d] text-white font-mono text-xs font-bold transition-all shadow-md flex items-center gap-2"
             >
               {isSaved ? <CheckCircle2 className="w-4 h-4 text-white" /> : <FileText className="w-4 h-4" />}
-              <span>{isSaved ? 'Draft Saved' : 'Save Lyric Revisions'}</span>
+              <span>{isSaved ? 'Saved Draft ✓' : 'Save Lyric Draft'}</span>
             </button>
 
-            {/* Inspect Wire Payload */}
             <button
-              onClick={() => {
-                const wire = buildWirePayload();
-                onInspectRaw('LyricDraft Wire Payload', wire);
-              }}
-              className="px-3.5 py-2 rounded-xl bg-[#241c33] hover:bg-[#342847] text-[#a294b8] hover:text-[#f5efe6] border border-[#6d6183]/30 text-xs font-mono flex items-center gap-1.5 transition-colors"
+              onClick={() => setShowWireModal(true)}
+              className="px-3 py-2.5 rounded-xl bg-[#191324] hover:bg-[#241c33] text-[#ffd48a] border border-[#342847] font-mono text-xs font-bold transition-all flex items-center gap-2"
+              title="Inspect JSON Payload"
             >
-              <Code2 className="w-3.5 h-3.5 text-[#ffd48a]" />
-              <span>Inspect Wire JSON</span>
+              <Code2 className="w-4 h-4" />
+              <span className="hidden sm:inline">JSON Wire</span>
             </button>
           </div>
-        </div>
-
+        }
+      >
         {/* Language, Dialect & Transliteration Selectors */}
-        <div className="pt-4 border-t border-[#241c33] grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           
           {/* Language Selector */}
           <div className="space-y-1">
@@ -483,7 +473,7 @@ export const LyricsTab: React.FC<LyricsTabProps> = ({
           </div>
 
         </div>
-      </div>
+      </PageHeader>
 
       {/* Main Two-Column Workspace: LEFT = Draft Page, RIGHT = Agent Co-Writer */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">

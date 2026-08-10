@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
-import { Sliders, Sparkles, BookOpen, Users, Rocket, TrendingUp, Plus, X, Upload } from 'lucide-react';
+import { Plus, X, Upload } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import { INITIAL_TRACKS } from './data/mockTracks';
 import { TrackItem, ActiveTab, Language } from './types';
 import { NightBackground } from './components/NightBackground';
 import { Header } from './components/Header';
+import { Sidebar } from './components/Sidebar';
 import { AudioPlayerBar } from './components/AudioPlayerBar';
 import { InspectorModal } from './components/InspectorModal';
 import { MobileApprovalModal } from './components/MobileApprovalModal';
@@ -13,6 +15,8 @@ import { LyricsTab } from './components/tabs/LyricsTab';
 import { SplitsTab } from './components/tabs/SplitsTab';
 import { ReleaseDeliveryTab } from './components/tabs/ReleaseDeliveryTab';
 import { GrowthTab } from './components/tabs/GrowthTab';
+import { AgentMarketplaceTab } from './components/tabs/AgentMarketplaceTab';
+import { SettingsTab } from './components/tabs/SettingsTab';
 
 export default function App() {
   const [tracks, setTracks] = useState<TrackItem[]>(INITIAL_TRACKS);
@@ -30,8 +34,15 @@ export default function App() {
     payload: null
   });
 
-  // Modal State for Global Mobile Approval View
+  const [installedAgentIds, setInstalledAgentIds] = useState<string[]>(['agent-telugu-chandas']);
   const [showGlobalMobileApproval, setShowGlobalMobileApproval] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+
+  const handleInstallAgent = (agentId: string) => {
+    if (!installedAgentIds.includes(agentId)) {
+      setInstalledAgentIds((prev) => [...prev, agentId]);
+    }
+  };
 
   // Modal State for New Track Ingest
   const [showNewTrackModal, setShowNewTrackModal] = useState(false);
@@ -167,23 +178,27 @@ export default function App() {
     activeTrack.releaseTasks?.some((t) => t.requiresArtistApproval && t.approvalStatus === 'pending_artist_approval')
   ].filter(Boolean).length;
 
-  const tabs = [
-    { id: 'mix_qc' as ActiveTab, label: 'Mix QC & Mastering', icon: Sliders },
-    { id: 'ar_feedback' as ActiveTab, label: 'A&R Direction', icon: Sparkles },
-    { id: 'lyrics' as ActiveTab, label: 'Lyrics & Meter', icon: BookOpen },
-    { id: 'splits' as ActiveTab, label: 'Rights & Splits', icon: Users },
-    { id: 'release' as ActiveTab, label: 'Release Delivery', icon: Rocket },
-    { id: 'growth' as ActiveTab, label: 'Post-Release Growth', icon: TrendingUp }
-  ];
-
   return (
-    <div className="min-h-screen bg-[#08060d] text-[#f5efe6] font-sans relative selection:bg-[#f2542d] selection:text-[#08060d]">
+    <div className="min-h-screen bg-[#08060d] text-[#f5efe6] font-sans relative selection:bg-[#f2542d] selection:text-[#08060d] flex overflow-x-hidden">
       
       {/* Night Raga Lighting Background Layer */}
       <NightBackground />
 
-      {/* Main Container */}
-      <div className="relative z-10 flex flex-col min-h-screen">
+      {/* Collapsible Left Sidebar */}
+      <Sidebar
+        tracks={tracks}
+        activeTrack={activeTrack}
+        activeTab={activeTab}
+        onSelectTab={(tab) => setActiveTab(tab)}
+        onSelectTrack={(trackId) => setActiveTrackId(trackId)}
+        isCollapsed={isSidebarCollapsed}
+        onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+        pendingCheckpointsCount={pendingCheckpointsCount}
+        onOpenMobileApproval={() => setShowGlobalMobileApproval(true)}
+      />
+
+      {/* Main Container Right Side */}
+      <div className="relative z-10 flex-1 flex flex-col min-h-screen min-w-0">
         
         {/* Global Header */}
         <Header
@@ -204,77 +219,82 @@ export default function App() {
             onInspectRawMetrics={() => openInspector("Audio DSP Metrics Payload", activeTrack.audioMetrics || { info: "Audio metrics missing" })}
           />
 
-          {/* Navigation Tabs Bar */}
-          <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none border-b border-[#342847]/60">
-            {tabs.map((tab) => {
-              const Icon = tab.icon;
-              const isActive = activeTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-sans font-medium transition-all flex-shrink-0 ${
-                    isActive
-                      ? 'bg-[#191324] text-[#ffd48a] border border-[#f5b544]/40 shadow-lg shadow-[#191324]/50'
-                      : 'text-[#a294b8] hover:text-[#f5efe6] hover:bg-[#120e1b]'
-                  }`}
-                >
-                  <Icon className={`w-4 h-4 ${isActive ? 'text-[#f2542d]' : 'text-[#a294b8]'}`} />
-                  <span>{tab.label}</span>
-                </button>
-              );
-            })}
-          </div>
-
           {/* Active Tab View */}
           <div className="mt-6">
-            {activeTab === 'mix_qc' && (
-              <MixQCTab
-                track={activeTrack}
-                onUpdateTrack={handleUpdateTrack}
-                onInspectRaw={openInspector}
-              />
-            )}
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={activeTab}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.18, ease: 'easeOut' }}
+              >
+                {activeTab === 'mix_qc' && (
+                  <MixQCTab
+                    track={activeTrack}
+                    onUpdateTrack={handleUpdateTrack}
+                    onInspectRaw={openInspector}
+                  />
+                )}
 
-            {activeTab === 'ar_feedback' && (
-              <AnRFeedbackTab
-                track={activeTrack}
-                onUpdateTrack={handleUpdateTrack}
-                onInspectRaw={openInspector}
-              />
-            )}
+                {activeTab === 'ar_feedback' && (
+                  <AnRFeedbackTab
+                    track={activeTrack}
+                    onUpdateTrack={handleUpdateTrack}
+                    onInspectRaw={openInspector}
+                  />
+                )}
 
-            {activeTab === 'lyrics' && (
-              <LyricsTab
-                track={activeTrack}
-                onUpdateTrack={handleUpdateTrack}
-                onInspectRaw={openInspector}
-              />
-            )}
+                {activeTab === 'lyrics' && (
+                  <LyricsTab
+                    track={activeTrack}
+                    onUpdateTrack={handleUpdateTrack}
+                    onInspectRaw={openInspector}
+                  />
+                )}
 
-            {activeTab === 'splits' && (
-              <SplitsTab
-                track={activeTrack}
-                onUpdateTrack={handleUpdateTrack}
-                onInspectRaw={openInspector}
-              />
-            )}
+                {activeTab === 'splits' && (
+                  <SplitsTab
+                    track={activeTrack}
+                    onUpdateTrack={handleUpdateTrack}
+                    onInspectRaw={openInspector}
+                  />
+                )}
 
-            {activeTab === 'release' && (
-              <ReleaseDeliveryTab
-                track={activeTrack}
-                onUpdateTrack={handleUpdateTrack}
-                onInspectRaw={openInspector}
-              />
-            )}
+                {activeTab === 'release' && (
+                  <ReleaseDeliveryTab
+                    track={activeTrack}
+                    onUpdateTrack={handleUpdateTrack}
+                    onInspectRaw={openInspector}
+                  />
+                )}
 
-            {activeTab === 'growth' && (
-              <GrowthTab
-                track={activeTrack}
-                onUpdateTrack={handleUpdateTrack}
-                onInspectRaw={openInspector}
-              />
-            )}
+                {activeTab === 'growth' && (
+                  <GrowthTab
+                    track={activeTrack}
+                    onUpdateTrack={handleUpdateTrack}
+                    onInspectRaw={openInspector}
+                  />
+                )}
+
+                {activeTab === 'marketplace' && (
+                  <AgentMarketplaceTab
+                    activeTrack={activeTrack}
+                    tracks={tracks}
+                    installedAgentIds={installedAgentIds}
+                    onInstallAgent={handleInstallAgent}
+                    onInspectRaw={openInspector}
+                  />
+                )}
+
+                {activeTab === 'settings' && (
+                  <SettingsTab
+                    installedAgentIds={installedAgentIds}
+                    onInstallAgent={handleInstallAgent}
+                  />
+                )}
+              </motion.div>
+            </AnimatePresence>
           </div>
 
         </main>

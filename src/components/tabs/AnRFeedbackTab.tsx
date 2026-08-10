@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Sparkles, Award, CheckCircle2, AlertCircle, Compass, Radio, RefreshCw } from 'lucide-react';
 import { TrackItem } from '../../types';
 import { HumanCheckpointCard } from '../HumanCheckpointCard';
+import { PageHeader, SectionCard, SectionHeader } from '../SectionPanel';
 
 interface AnRFeedbackTabProps {
   track: TrackItem;
@@ -80,29 +81,23 @@ export const AnRFeedbackTab: React.FC<AnRFeedbackTabProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Banner */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-6 glass-panel rounded-2xl border border-[#342847]">
-        <div>
-          <div className="flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-[#ff7a4d]" />
-            <h2 className="font-serif text-xl font-bold text-[#f5efe6]">
-              A&R Direction & Editorial Critique
-            </h2>
-          </div>
-          <p className="text-xs text-[#a294b8] font-serif mt-1">
-            Agent-driven A&R feedback for regional Indian indie artists without record label dilution.
-          </p>
-        </div>
-
-        <button
-          onClick={handleRunAiCritique}
-          disabled={loading}
-          className="px-4 py-2.5 rounded-xl bg-[#f2542d] hover:bg-[#ff7a4d] text-xs font-semibold text-[#08060d] flex items-center gap-2 transition-all shadow-lg shadow-[#f2542d]/25 self-start md:self-auto"
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          <span>{loading ? 'Consulting Gemini A&R Agent...' : 'Re-Run A&R Agent Critique'}</span>
-        </button>
-      </div>
+      {/* Standardized Page Header */}
+      <PageHeader
+        icon={Sparkles}
+        title="A&R Direction & Editorial Critique"
+        description="Agent-driven A&R feedback for regional Indian indie artists without record label dilution."
+        badge="Gemini A&R Engine"
+        action={
+          <button
+            onClick={handleRunAiCritique}
+            disabled={loading}
+            className="px-4 py-2.5 rounded-xl bg-[#f2542d] hover:bg-[#ff7a4d] text-white font-mono text-xs font-bold transition-all shadow-md flex items-center gap-2"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            <span>{loading ? 'Consulting Gemini A&R Agent...' : 'Re-Run A&R Critique'}</span>
+          </button>
+        }
+      />
 
       {/* Human Approval Checkpoint */}
       {ar && (
@@ -119,18 +114,18 @@ export const AnRFeedbackTab: React.FC<AnRFeedbackTabProps> = ({
 
       {/* Primary Editorial Verdict Card */}
       {ar && (
-        <div className="p-8 glass-panel rounded-2xl border border-[#342847] bg-[#0d0a14]/80 relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-64 h-64 bg-[#a56bd6]/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="p-6 rounded-2xl bg-[#120e1b] border border-[#241c33] shadow-md space-y-4 relative overflow-hidden">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-mono uppercase tracking-wider text-[#ffd48a] bg-[#191324] px-3 py-1 rounded-full border border-[#ffd48a]/20 font-bold">
+              Official A&R Verdict
+            </span>
+          </div>
 
-          <span className="text-[10px] font-mono-num uppercase tracking-wider text-[#ffd48a] bg-[#241c33] px-2.5 py-1 rounded-full border border-[#f5b544]/20">
-            Official A&R Verdict
-          </span>
-
-          <h3 className="font-serif text-2xl md:text-3xl font-bold text-[#f5efe6] mt-3 leading-snug">
+          <h3 className="font-serif text-xl md:text-2xl font-bold text-[#f5efe6] leading-snug">
             "{ar.verdict}"
           </h3>
 
-          <div className="mt-6 pt-6 border-t border-[#342847]/60 text-sm font-serif text-[#f5efe6]/90 leading-relaxed space-y-4">
+          <div className="pt-4 border-t border-[#241c33] font-sans text-xs text-[#a294b8] leading-relaxed">
             <p>{ar.narrativeSummary}</p>
           </div>
         </div>
@@ -143,15 +138,20 @@ export const AnRFeedbackTab: React.FC<AnRFeedbackTabProps> = ({
           {/* Strengths & Concerns */}
           <div className="lg:col-span-2 space-y-6">
             
-            {/* Strengths */}
-            <div className="p-6 glass-panel rounded-2xl border border-[#342847]">
-              <h4 className="font-serif text-base font-semibold text-[#f5efe6] mb-4 flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-[#43c9a0]" />
-                Key Artistic Strengths
-              </h4>
-              <ul className="space-y-3">
+            {/* Strengths Card */}
+            <div className="p-6 rounded-2xl bg-[#120e1b] border border-[#241c33] shadow-md space-y-4">
+              <div className="flex items-center gap-2.5 pb-3 border-b border-[#241c33]">
+                <div className="p-2 rounded-xl bg-[#43c9a0]/10 border border-[#43c9a0]/20 text-[#43c9a0]">
+                  <CheckCircle2 className="w-4 h-4" />
+                </div>
+                <h4 className="font-serif text-base font-bold text-[#f5efe6]">
+                  Key Artistic Strengths
+                </h4>
+              </div>
+
+              <ul className="space-y-2.5">
                 {ar.strengths.map((str, idx) => (
-                  <li key={idx} className="flex items-start gap-3 text-xs font-serif text-[#f5efe6]/90 bg-[#120e1b] p-3 rounded-xl border border-[#241c33]">
+                  <li key={idx} className="flex items-start gap-3 text-xs font-sans text-[#f5efe6] bg-[#08060d] p-3 rounded-xl border border-[#241c33]">
                     <span className="w-1.5 h-1.5 rounded-full bg-[#43c9a0] mt-1.5 flex-shrink-0" />
                     <span>{str}</span>
                   </li>
@@ -159,16 +159,21 @@ export const AnRFeedbackTab: React.FC<AnRFeedbackTabProps> = ({
               </ul>
             </div>
 
-            {/* Concerns */}
-            <div className="p-6 glass-panel rounded-2xl border border-[#342847]">
-              <h4 className="font-serif text-base font-semibold text-[#f5efe6] mb-4 flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 text-[#ff7a4d]" />
-                Areas to Polish Before Release
-              </h4>
-              <ul className="space-y-3">
+            {/* Concerns Card */}
+            <div className="p-6 rounded-2xl bg-[#120e1b] border border-[#241c33] shadow-md space-y-4">
+              <div className="flex items-center gap-2.5 pb-3 border-b border-[#241c33]">
+                <div className="p-2 rounded-xl bg-[#f2542d]/10 border border-[#f2542d]/20 text-[#f2542d]">
+                  <AlertCircle className="w-4 h-4" />
+                </div>
+                <h4 className="font-serif text-base font-bold text-[#f5efe6]">
+                  Areas to Polish Before Release
+                </h4>
+              </div>
+
+              <ul className="space-y-2.5">
                 {ar.concerns.map((con, idx) => (
-                  <li key={idx} className="flex items-start gap-3 text-xs font-serif text-[#f5efe6]/90 bg-[#120e1b] p-3 rounded-xl border border-[#241c33]">
-                    <span className="w-1.5 h-1.5 rounded-full bg-[#ff7a4d] mt-1.5 flex-shrink-0" />
+                  <li key={idx} className="flex items-start gap-3 text-xs font-sans text-[#f5efe6] bg-[#08060d] p-3 rounded-xl border border-[#241c33]">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#f2542d] mt-1.5 flex-shrink-0" />
                     <span>{con}</span>
                   </li>
                 ))}
@@ -180,46 +185,46 @@ export const AnRFeedbackTab: React.FC<AnRFeedbackTabProps> = ({
           {/* Right Col: Commercial Potential & Playlists */}
           <div className="space-y-6">
             
-            {/* Commercial Score Gauge */}
-            <div className="p-6 glass-panel rounded-2xl border border-[#342847] text-center">
-              <span className="text-[10px] font-mono-num text-[#a294b8] uppercase block">
+            {/* Commercial Score Gauge Card */}
+            <div className="p-6 rounded-2xl bg-[#120e1b] border border-[#241c33] shadow-md text-center space-y-4">
+              <span className="text-[10px] font-mono text-[#a294b8] uppercase tracking-wider block">
                 Commercial Replay Potential
               </span>
 
-              <div className="my-4 inline-flex items-center justify-center w-28 h-28 rounded-full bg-[#120e1b] border-4 border-[#21a882] shadow-xl shadow-[#21a882]/20">
-                <span className="text-3xl font-bold font-mono-num text-[#7fe3c0]">
+              <div className="my-2 inline-flex items-center justify-center w-24 h-24 rounded-full bg-[#08060d] border-4 border-[#43c9a0] shadow-xl">
+                <span className="text-2xl font-bold font-mono text-[#43c9a0]">
                   {ar.commercialPotentialScore}
                 </span>
-                <span className="text-xs font-mono-num text-[#a294b8] text-left ml-0.5">/100</span>
+                <span className="text-xs font-mono text-[#a294b8]">/100</span>
               </div>
 
-              <p className="text-xs font-serif text-[#a294b8]">
+              <p className="text-xs font-sans text-[#a294b8]">
                 Calculated based on regional hook stickiness, intro retention, and playlist fit.
               </p>
             </div>
 
-            {/* Target Audience & Editorial Playlists */}
-            <div className="p-6 glass-panel rounded-2xl border border-[#342847] space-y-4">
+            {/* Target Audience & Editorial Playlists Card */}
+            <div className="p-6 rounded-2xl bg-[#120e1b] border border-[#241c33] shadow-md space-y-4 font-mono text-xs">
               <div>
-                <h5 className="text-xs font-mono-num text-[#f5b544] uppercase mb-1 flex items-center gap-1.5">
+                <h5 className="text-xs text-[#ffd48a] font-bold uppercase mb-1.5 flex items-center gap-1.5">
                   <Compass className="w-3.5 h-3.5" />
                   Target Listener Profile
                 </h5>
-                <p className="text-xs font-serif text-[#f5efe6]/90 leading-relaxed">
+                <p className="font-sans text-xs text-[#f5efe6] leading-relaxed">
                   {ar.targetAudience}
                 </p>
               </div>
 
               <div className="pt-4 border-t border-[#241c33]">
-                <h5 className="text-xs font-mono-num text-[#f5b544] uppercase mb-2 flex items-center gap-1.5">
+                <h5 className="text-xs text-[#ffd48a] font-bold uppercase mb-2 flex items-center gap-1.5">
                   <Radio className="w-3.5 h-3.5" />
                   Target Editorial Playlists
                 </h5>
-                <div className="flex flex-wrap gap-1.5">
+                <div className="flex flex-wrap gap-2">
                   {ar.suggestedPlaylists.map((pl, idx) => (
                     <span
                       key={idx}
-                      className="px-2.5 py-1 rounded-lg bg-[#191324] border border-[#342847] text-[11px] font-mono-num text-[#f5efe6]"
+                      className="px-2.5 py-1 rounded-xl bg-[#08060d] border border-[#342847] text-xs text-[#f5efe6]"
                     >
                       {pl}
                     </span>

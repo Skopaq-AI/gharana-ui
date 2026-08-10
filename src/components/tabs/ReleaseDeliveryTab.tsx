@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Rocket, CheckCircle2, Circle, Radio, Image as ImageIcon, Send, Share2, TrendingUp, Sparkles } from 'lucide-react';
 import { TrackItem, ReleaseChecklistTask } from '../../types';
 import { HumanCheckpointCard } from '../HumanCheckpointCard';
+import { PageHeader, SectionCard, SectionHeader, StatCard } from '../SectionPanel';
 
 interface ReleaseDeliveryTabProps {
   track: TrackItem;
@@ -58,34 +59,27 @@ export const ReleaseDeliveryTab: React.FC<ReleaseDeliveryTabProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Header Banner */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-6 glass-panel rounded-2xl border border-[#342847]">
-        <div>
-          <div className="flex items-center gap-2">
-            <Rocket className="w-5 h-5 text-[#ff7a4d]" />
-            <h2 className="font-serif text-xl font-bold text-[#f5efe6]">
-              Release Delivery & Post-Release Growth
-            </h2>
+      {/* Standardized Page Header */}
+      <PageHeader
+        icon={Rocket}
+        title="Release Delivery & Distribution Pipeline"
+        description="Distribution checklist, editorial pitching, artwork compliance, and launch orchestration."
+        badge="DDEX Ready"
+        action={
+          <div className="min-w-[180px] bg-[#08060d] p-3 rounded-xl border border-[#241c33]">
+            <div className="flex justify-between items-center text-xs font-mono mb-1.5">
+              <span className="text-[#a294b8]">Readiness</span>
+              <span className="text-[#43c9a0] font-bold">{progressPercent}%</span>
+            </div>
+            <div className="h-2 bg-[#120e1b] rounded-full overflow-hidden border border-[#241c33]">
+              <div
+                className="h-full bg-gradient-to-r from-[#f2542d] to-[#43c9a0] transition-all duration-500"
+                style={{ width: `${progressPercent}%` }}
+              />
+            </div>
           </div>
-          <p className="text-xs text-[#a294b8] font-serif mt-1">
-            Distribution checklist, editorial pitching, artwork compliance, and growth playbook.
-          </p>
-        </div>
-
-        {/* Progress Bar */}
-        <div className="min-w-[200px]">
-          <div className="flex justify-between items-center text-xs font-mono-num mb-1">
-            <span className="text-[#a294b8]">Release Readiness</span>
-            <span className="text-[#7fe3c0] font-bold">{progressPercent}%</span>
-          </div>
-          <div className="h-2 bg-[#08060d] rounded-full overflow-hidden border border-[#241c33]">
-            <div
-              className="h-full bg-gradient-to-r from-[#21a882] to-[#43c9a0] transition-all duration-500"
-              style={{ width: `${progressPercent}%` }}
-            />
-          </div>
-        </div>
-      </div>
+        }
+      />
 
       {/* Human Approval Checkpoint for Pitch */}
       <HumanCheckpointCard
