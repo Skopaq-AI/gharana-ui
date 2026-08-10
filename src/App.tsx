@@ -17,8 +17,10 @@ import { ReleaseDeliveryTab } from './components/tabs/ReleaseDeliveryTab';
 import { GrowthTab } from './components/tabs/GrowthTab';
 import { AgentMarketplaceTab } from './components/tabs/AgentMarketplaceTab';
 import { SettingsTab } from './components/tabs/SettingsTab';
+import { LandingPage } from './components/LandingPage';
 
 export default function App() {
+  const [viewMode, setViewMode] = useState<'landing' | 'app'>('landing');
   const [tracks, setTracks] = useState<TrackItem[]>(INITIAL_TRACKS);
   const [activeTrackId, setActiveTrackId] = useState<string>(INITIAL_TRACKS[0].id);
   const [activeTab, setActiveTab] = useState<ActiveTab>('mix_qc');
@@ -178,6 +180,10 @@ export default function App() {
     activeTrack.releaseTasks?.some((t) => t.requiresArtistApproval && t.approvalStatus === 'pending_artist_approval')
   ].filter(Boolean).length;
 
+  if (viewMode === 'landing') {
+    return <LandingPage onLaunchStudio={() => setViewMode('app')} />;
+  }
+
   return (
     <div className="min-h-screen bg-[#08060d] text-[#f5efe6] font-sans relative selection:bg-[#f2542d] selection:text-[#08060d] flex overflow-x-hidden">
       
@@ -208,6 +214,7 @@ export default function App() {
           onNewTrack={() => setShowNewTrackModal(true)}
           pendingCheckpointsCount={pendingCheckpointsCount}
           onOpenMobileApproval={() => setShowGlobalMobileApproval(true)}
+          onToggleLandingPage={() => setViewMode('landing')}
         />
 
         {/* Content Body */}

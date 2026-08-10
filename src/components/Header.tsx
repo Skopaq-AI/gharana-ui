@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Music2, Clock, Flame, Plus, ChevronDown, Radio, Smartphone } from 'lucide-react';
+import { Music2, Clock, Flame, Plus, ChevronDown, Radio, Smartphone, Globe } from 'lucide-react';
 import { TrackItem } from '../types';
 
 interface HeaderProps {
@@ -9,6 +9,7 @@ interface HeaderProps {
   onNewTrack: () => void;
   pendingCheckpointsCount: number;
   onOpenMobileApproval?: () => void;
+  onToggleLandingPage?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -17,7 +18,8 @@ export const Header: React.FC<HeaderProps> = ({
   onSelectTrack,
   onNewTrack,
   pendingCheckpointsCount,
-  onOpenMobileApproval
+  onOpenMobileApproval,
+  onToggleLandingPage
 }) => {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [timeString, setTimeString] = useState('');
@@ -158,6 +160,18 @@ export const Header: React.FC<HeaderProps> = ({
             >
               <Smartphone className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">WhatsApp Nudge</span>
+            </button>
+          )}
+
+          {/* Landing Page Switcher */}
+          {onToggleLandingPage && (
+            <button
+              onClick={onToggleLandingPage}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#120e1b] hover:bg-[#1a1426] border border-[#241c33] hover:border-[#342847] text-xs font-mono text-[#a294b8] hover:text-[#f5efe6] transition-all"
+              title="View Product Landing Page"
+            >
+              <Globe className="w-3.5 h-3.5 text-[#ffd48a]" />
+              <span className="hidden md:inline">Landing Page</span>
             </button>
           )}
 
