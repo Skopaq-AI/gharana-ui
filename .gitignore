@@ -6,3 +6,7 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Paid generator originals, kept only so a failed encode can be retried
+# without re-billing the API call. Never served, never shipped.
+.genmedia/
