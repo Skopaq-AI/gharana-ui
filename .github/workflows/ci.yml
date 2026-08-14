@@ -1,0 +1,76 @@
+# The console's own gate, now that it has left the monorepo.
+#
+# It used to be covered by the backend repo's CI — one job there ran
+# `tsc --noEmit` against apps/console, and the deploy pipeline built the image.
+# Moving the code out of that repo moved it out of that gate too, and a repo
+# that deploys to production with nothing checking it is worse than the split
+# was meant to fix.
+#
+# Three things are checked, in the order they fail fastest:
+#
+#   typecheck   tsc --noEmit. The build does NOT typecheck — Vite transpiles and
+#               strips types without ever asking whether they agree, so a build
+#               passing says nothing about correctness.
+#   build       the real production build, because a page can typecheck and
+#               still fail to bundle.
+#   image       docker build, then start the container and ask it for /health.
+#               This is the step that matters: the Dockerfile emits an ESM
+#               bundle whose entrypoint had never once been started in this
+#               project's history, because dev runs the TypeScript through tsx
+#               and only production ran the bundle. `docker build` alone would
+#               not have caught that. Starting it does.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      # `npm ci`, not install: the lockfile is the record of what was scanned,
+      # and install is free to quietly resolve something else.
+      - run: npm ci
+
+      - name: typecheck
+        run: npx tsc --noEmit
+
+      - name: build
+        run: npm run build
+
+      - name: image builds and actually serves
+        run: |
+          set -euo pipefail
+          docker build -t gharana-console:ci .
+          docker run -d --name ci-console -p 3000:3000 \
+            -e GATEWAY_URL=https://example.invalid gharana-console:ci
+          # Poll rather than sleep: a fixed sleep either wastes time or races,
+          # and this is the check that proves the entrypoint starts at all.
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:3000/api/health >/dev/null 2>&1; then
+              echo "console answered /api/health after ${i}s"
+              curl -fsS http://localhost:3000/api/health
+              docker rm -f ci-console >/dev/null
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::the container never answered /api/health"
+          docker logs ci-console
+          exit 1
