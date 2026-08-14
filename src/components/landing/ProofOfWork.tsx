@@ -112,7 +112,12 @@ function isDemo(body: unknown): body is Demo {
   );
 }
 
-export const ProofOfWork: React.FC = () => {
+export const ProofOfWork: React.FC<{
+  /** Hands the <audio> element up so the headline can animate to the same
+      excerpt. One element, one playback — a second copy would drift and the
+      page would be visibly out of time with itself. */
+  onAudioReady?: (el: HTMLAudioElement | null) => void;
+}> = ({ onAudioReady }) => {
   const [demo, setDemo] = useState<Demo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>('requesting');
@@ -173,6 +178,11 @@ export const ProofOfWork: React.FC = () => {
   useEffect(() => {
     audioRef.current?.play().catch(() => undefined);
   }, [demo]);
+
+  useEffect(() => {
+    onAudioReady?.(audioRef.current);
+    return () => onAudioReady?.(null);
+  }, [onAudioReady, demo]);
 
   const toggleSound = () => {
     const el = audioRef.current;

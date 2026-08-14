@@ -33,6 +33,7 @@ import { VideoBand } from './Showcase';
 import { Refusals } from './Refusals';
 import { AmbientLoop } from './AmbientLoop';
 import { ThemeToggle } from '../ThemeToggle';
+import { ScoreLine } from './ScoreLine';
 
 export interface LandingPageProps {
   /**
@@ -53,6 +54,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterConsole }) => {
     window.location.href = '/?app';
   });
   const [modal, setModal] = React.useState<FooterModalType>(null);
+  // Held here because two children need the same element: the panel that plays
+  // it and the headline that moves to it.
+  const [proofAudio, setProofAudio] = React.useState<HTMLAudioElement | null>(null);
 
   // The hero clip loads fully (readyState 4) and plays when asked, but the
   // autoPlay attribute does not reliably win the race against <source>
@@ -97,7 +101,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterConsole }) => {
           <div className="flex items-baseline gap-2.5">
             <span className="font-headline text-lg font-bold tracking-tight">GHARANA</span>
             <span className="hidden font-mono text-[11px] text-dim sm:inline">
-              the label you never signed with
+              the label that shows its work
             </span>
           </div>
           <div className="flex items-center gap-3">
@@ -154,10 +158,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterConsole }) => {
         <div className="relative mx-auto max-w-[1600px] px-5 pb-16 pt-20 sm:px-8 sm:pb-24 sm:pt-28">
         <motion.div {...rise} className="max-w-3xl">
           <Badge status="ok" className="mb-6">every number below is measured</Badge>
-          <h1 className="font-headline text-[clamp(2.5rem,6.2vw,5.5rem)] font-bold leading-[0.98] tracking-[-0.035em]">
-            Agents that
-            <span className="text-accent"> show their work.</span>
-          </h1>
+          {/* Set like a line of music: each character sits at its own height and
+              the line moves with the excerpt on this page when it is audible.
+              The two halves carry the palette's two meanings — jade is a number
+              that came back fine, vermilion is a thing waiting on a person — so
+              the headline says the product twice, once in words and once in the
+              colours the rest of the interface already uses for those ideas. */}
+          <ScoreLine audio={proofAudio} />
           <p className="mt-6 max-w-2xl text-lg leading-relaxed text-muted">
             A&amp;R, mix QC, mastering, splits, delivery.
           </p>
@@ -173,7 +180,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterConsole }) => {
             discipline; a browser cannot compute BS.1770, so the one place the
             product demonstrated its claim was the one place it was not doing it. */}
         <motion.div {...rise} id="proof" className="mt-10">
-          <ProofOfWork />
+          <ProofOfWork onAudioReady={setProofAudio} />
         </motion.div>
         </div>
       </header>
