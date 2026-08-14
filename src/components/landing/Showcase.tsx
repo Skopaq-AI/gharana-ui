@@ -75,7 +75,7 @@ export const VideoBand: React.FC<{
         aria-hidden="true"
         className="absolute inset-0 bg-gradient-to-t from-bg via-bg/70 to-bg/30"
       />
-      <div className="relative mx-auto flex h-full max-w-[1600px] flex-col justify-end px-5 pb-12 sm:px-8 sm:pb-16">
+      <div className="relative shell flex h-full flex-col justify-end pb-12 sm:pb-16">
         <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-accent">
           {kicker}
         </div>

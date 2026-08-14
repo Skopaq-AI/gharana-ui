@@ -97,7 +97,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterConsole }) => {
     <div className="min-h-screen bg-bg text-ink">
       {/* ---------------------------------------------------------------- nav */}
       <nav className="sticky top-0 z-40 border-b border-line bg-bg/85 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-[1600px] items-center justify-between px-5 py-3 sm:px-8">
+        <div className="shell flex items-center justify-between py-3">
           <div className="flex items-baseline gap-2.5">
             <span className="font-headline text-lg font-bold tracking-tight">GHARANA</span>
             <span className="hidden font-mono text-[11px] text-dim sm:inline">
@@ -155,7 +155,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterConsole }) => {
           className="absolute inset-0 bg-gradient-to-r from-bg via-bg/90 to-bg/10 md:to-transparent"
         />
 
-        <div className="relative mx-auto max-w-[1600px] px-5 pb-16 pt-20 sm:px-8 sm:pb-24 sm:pt-28">
+        <div className="relative shell pb-16 pt-20 sm:pb-24 sm:pt-28">
         <motion.div {...rise} className="max-w-3xl">
           <Badge status="ok" className="mb-6">every number below is measured</Badge>
           {/* Set like a line of music: each character sits at its own height and
@@ -187,7 +187,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterConsole }) => {
 
       {/* ------------------------------------------------ specific or silent */}
       <section id="evidence" className="border-y border-line bg-panel/40">
-        <div className="mx-auto max-w-[1600px] px-5 py-16 sm:px-8">
+        <div className="shell">
           <motion.div {...rise}>
             <h2 className="font-headline text-[clamp(1.75rem,3.4vw,2.75rem)] font-bold leading-[1.02] tracking-[-0.03em]">Specific, or silent.</h2>
             <p className="mt-3 max-w-2xl text-muted">
@@ -247,7 +247,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterConsole }) => {
           aria-hidden="true"
           className="absolute inset-0 bg-gradient-to-r from-bg via-bg/92 to-bg/55"
         />
-        <div className="relative mx-auto max-w-[1600px] px-5 py-16 sm:px-8">
+        <div className="relative shell">
         <motion.div {...rise} className="mb-10 max-w-2xl">
           <h2 className="font-headline text-[clamp(1.75rem,3.4vw,2.75rem)] font-bold leading-[1.02] tracking-[-0.03em]">
             Five stages. Five times you decide.
@@ -269,7 +269,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterConsole }) => {
 
       {/* ------------------------------------------------------- the refusals */}
       <section id="refusals" className="border-y border-line bg-panel/30 py-16 sm:py-20">
-        <div className="mx-auto mb-10 max-w-[1600px] px-5 sm:px-8">
+        <div className="shell">
           <h2 className="font-headline text-[clamp(1.75rem,3.4vw,2.75rem)] font-bold leading-[1.02] tracking-[-0.03em]">
             What it refuses to do
           </h2>
@@ -310,7 +310,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterConsole }) => {
           aria-hidden="true"
           className="absolute inset-0 bg-gradient-to-r from-bg via-bg/85 to-bg/40"
         />
-        <motion.div {...rise} className="relative mx-auto max-w-[1600px] px-5 py-28 sm:px-8">
+        <motion.div {...rise} className="relative shell">
           <h2 className="max-w-4xl font-headline text-[clamp(2rem,5vw,4rem)] font-bold leading-[1.0] tracking-[-0.035em]">
             Bring a bounce.<br />Get findings you can argue with.
           </h2>

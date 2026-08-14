@@ -91,7 +91,7 @@ export const AgentGrid: React.FC = () => {
         className="pointer-events-none absolute inset-0 h-full w-full object-cover"
       />
       <div aria-hidden="true" className="absolute inset-0 bg-gradient-to-r from-bg via-bg/85 to-bg/40" />
-      <div className="relative mx-auto max-w-[1600px] px-5 sm:px-8">
+      <div className="relative shell">
         <h2 className="font-headline text-[clamp(1.75rem,3.4vw,2.75rem)] font-bold leading-[1.02] tracking-[-0.03em]">
           What's in the room
         </h2>
@@ -149,7 +149,7 @@ export const SiteFooter: React.FC<{ onOpenModal: (m: FooterModalType) => void }>
   onOpenModal,
 }) => (
   <footer className="border-t border-line bg-panel/20">
-    <div className="mx-auto max-w-[1600px] px-5 py-14 sm:px-8 sm:py-16">
+    <div className="shell">
       <div className="grid gap-10 md:grid-cols-[1.4fr_2fr]">
         <div>
           <div className="font-headline text-xl font-bold tracking-tight">GHARANA</div>

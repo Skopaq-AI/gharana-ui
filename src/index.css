@@ -71,6 +71,33 @@
 }
 
 /**
+ * The page shell: one container width and one set of gutters, everywhere.
+ *
+ * This was `mx-auto max-w-[1600px] px-5 sm:px-8` written out at ten call sites.
+ * Ten copies of a layout decision is ten chances to disagree, and they did —
+ * sections drifted apart and the page read as unevenly spaced rather than
+ * deliberately wide.
+ *
+ * 1600px was also simply too wide. A hero line at that measure leaves the eye
+ * travelling across empty ground to find the next word, and on a large display
+ * the content stopped looking placed and started looking stranded. 1280px is a
+ * comfortable measure for the widest thing here (a five-column stage card) and
+ * still generous.
+ */
+.shell {
+  width: 100%;
+  max-width: 80rem; /* 1280px */
+  margin-inline: auto;
+  padding-inline: 1.25rem;
+}
+
+@media (min-width: 640px) {
+  .shell {
+    padding-inline: 2rem;
+  }
+}
+
+/**
  * A measured value. The strongest typographic treatment on any screen, because
  * the measurement IS the product.
  */

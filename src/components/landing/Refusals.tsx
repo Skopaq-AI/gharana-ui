@@ -59,7 +59,7 @@ export const Refusals: React.FC = () => {
           transition={{ duration: 0.45, delay: i * 0.04, ease: [0.16, 1, 0.3, 1] }}
           className="group border-b border-line"
         >
-          <div className="mx-auto grid max-w-[1600px] gap-x-8 gap-y-2 px-5 py-8 sm:px-8 md:grid-cols-[5rem_minmax(0,22rem)_1fr] md:py-10">
+          <div className="shell grid gap-x-8 gap-y-2 py-8 md:grid-cols-[5rem_minmax(0,22rem)_1fr] md:py-10">
             {/* The numeral, at a size that makes it structure rather than
                 decoration. Dim by default so the claim leads. */}
             <span

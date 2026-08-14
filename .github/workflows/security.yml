@@ -24,6 +24,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
   schedule:
     # Advisories land after code does. A repo that only scans on push stops
     # scanning the day the code stops changing, which is exactly when a
