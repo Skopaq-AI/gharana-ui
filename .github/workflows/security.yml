@@ -1,0 +1,160 @@
+# Security scanning for the console, ported from the monorepo it left.
+#
+# WHY THIS FILE EXISTS BEFORE apps/console IS DELETED
+# ---------------------------------------------------
+# Four scans in Skopaq-AI/gharana covered the console while it lived there:
+# gitleaks over full history, semgrep over src/ and server.ts, npm audit, and a
+# trivy scan of the built image. Deleting apps/console without porting them
+# first would drop the console out of SAST and image-vulnerability coverage
+# entirely — and nothing would have gone red to say so, because the jobs would
+# simply have had less to look at.
+#
+# So this lands first and runs green, and only then does the old directory go.
+# The gap between those two commits is the whole reason for the ordering.
+#
+# WHAT IS DELIBERATELY NOT HERE
+# -----------------------------
+# pip-audit and the python half of semgrep. There is no Python in this repo.
+# Carrying them over "for symmetry" would produce jobs that scan nothing and
+# pass, which reads as coverage and is not.
+
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Advisories land after code does. A repo that only scans on push stops
+    # scanning the day the code stops changing, which is exactly when a
+    # dependency CVE is most likely to be the thing that bites.
+    - cron: "17 6 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  secrets:
+    name: secret scan (gitleaks, full history)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history — a deleted secret is still a leaked one
+      - name: Install gitleaks
+        run: |
+          VERSION=8.21.2
+          curl -sSfL -o /tmp/gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz"
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          sudo install /tmp/gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+      - name: Scan
+        run: |
+          gitleaks detect \
+            --source . \
+            --config .gitleaks.toml \
+            --redact \
+            --report-format json \
+            --report-path gitleaks-report.json \
+            --exit-code 1 \
+            --verbose
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gitleaks-report
+          path: gitleaks-report.json
+
+  sast:
+    name: SAST (semgrep)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install semgrep
+      - name: semgrep
+        # Pinned rulesets rather than --config=auto: auto resolves whatever the
+        # registry serves that day, so a build can go red on a rule nobody chose.
+        #
+        # server.ts is named explicitly alongside src/. It is the only code here
+        # that runs on a server, holds the session cookie and proxies
+        # authenticated traffic to the gateway — the SPA under src/ runs in a
+        # browser that already has whatever the user has.
+        run: |
+          semgrep scan \
+            --config p/javascript \
+            --config p/typescript \
+            --config p/security-audit \
+            --config p/secrets \
+            --error \
+            --json --output semgrep-report.json \
+            --metrics=off \
+            src server.ts
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sast-report
+          path: semgrep-report.json
+
+  deps:
+    name: dependency CVEs (npm audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm audit --audit-level=high
+
+  image:
+    name: image scan (trivy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      # The exact Dockerfile Railway builds, from the exact same root context.
+      # That equivalence is the point: an image scan of a lookalike tells you
+      # nothing about production.
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: false
+          load: true
+          tags: gharana-console:scan
+          cache-from: type=gha,scope=console
+          cache-to: type=gha,mode=max,scope=console
+      - name: Trivy
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: gharana-console:scan
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true # an unfixable CVE is not something a merge can resolve
+          exit-code: "1"
+
+  security-ok:
+    name: security-ok
+    runs-on: ubuntu-latest
+    needs: [secrets, sast, deps, image]
+    if: always()
+    steps:
+      - name: Fail if any scan did not succeed
+        run: |
+          results='${{ join(needs.*.result, ' ') }}'
+          echo "upstream results: $results"
+          for r in $results; do
+            if [ "$r" != "success" ]; then
+              echo "::error::a security scan reported '$r' — not releasable"
+              exit 1
+            fi
+          done
+          echo "all scans green"

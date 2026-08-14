@@ -1,0 +1,76 @@
+# gitleaks configuration.
+#
+# The default ruleset covers the well-known providers. What it cannot know are
+# GHARANA's own credential shapes, so those are added below — and they are the
+# ones most likely to be pasted into a file by accident, because unlike an AWS
+# key they look like nothing in particular.
+#
+# On tuning: an allowlist entry has to name *why* a match is not a secret. A
+# broad path exclusion ("tests/") would mute the scanner exactly where a real
+# credential is most likely to be committed as a convenient fixture.
+
+title = "GHARANA"
+
+[extend]
+useDefault = true
+
+# -----------------------------------------------------------------------------
+# GHARANA-specific credential shapes
+# -----------------------------------------------------------------------------
+
+[[rules]]
+id = "gharana-internal-token"
+description = "Service-to-service token (openssl rand -hex 32)"
+# Assignment of a 32+ byte hex value to the internal token. The value alone is
+# indistinguishable from any hex blob, so the variable name carries the signal.
+regex = '''(?i)GHARANA_INTERNAL_TOKEN\s*[:=]\s*["']?[0-9a-f]{32,}'''
+tags = ["gharana", "internal-auth"]
+
+[[rules]]
+id = "gharana-api-key-assignment"
+description = "Operator or artist gateway key committed as a literal"
+regex = '''(?i)GHARANA_(API_KEY|ARTIST_API_KEYS)\s*[:=]\s*["']?[A-Za-z0-9_\-]{16,}'''
+tags = ["gharana", "gateway-auth"]
+
+[[rules]]
+id = "gharana-s3-secret"
+description = "Supabase/S3 secret access key"
+regex = '''(?i)(GHARANA_S3_SECRET_KEY|SECRET_ACCESS_KEY)\s*[:=]\s*["']?[0-9a-f]{40,}'''
+tags = ["gharana", "storage"]
+
+[[rules]]
+id = "postgres-url-with-password"
+description = "Postgres connection string carrying a real password"
+regex = '''postgres(ql)?://[^\s:/@"']+:[^\s:/@"']{8,}@[^\s/"']+'''
+tags = ["gharana", "database"]
+
+# -----------------------------------------------------------------------------
+# Allowlist
+# -----------------------------------------------------------------------------
+
+[allowlist]
+description = "Values that match a credential shape but are not credentials"
+
+paths = [
+  # Documents the NAME of every variable and never a value. If a real key ever
+  # lands here the assignment rules above still fire on the value's shape.
+  '''\.env\.example$''',
+  # This file: the regexes above necessarily contain credential-shaped text.
+  '''\.gitleaks\.toml$''',
+  # Lockfiles carry integrity hashes that look like high-entropy secrets.
+  '''package-lock\.json$''',
+]
+
+regexes = [
+  # The local compose stack's throwaway database. Username, password and
+  # database are all literally "gharana" on a container bound to localhost with
+  # no volume that outlives `make down`. Committed on purpose so `make up` works
+  # with no setup; it grants nothing anywhere else.
+  '''postgres(ql)?://gharana:gharana@(localhost|postgres|127\.0\.0\.1):5432/gharana''',
+  # Test fixtures deliberately spell out that they are not real. Keeping this
+  # narrow — the marker has to be in the value itself, so a real key pasted into
+  # a test file is still caught.
+  '''(?i)(fake|dummy|example|placeholder|not-?a-?real|test-?only|changeme|xxxx+)[-_]?(key|token|secret)''',
+  '''(?i)(key|token|secret)[-_]?(fake|dummy|example|placeholder|test-?only)''',
+  '''MY_(GEMINI_API_KEY|APP_URL)''',
+]
