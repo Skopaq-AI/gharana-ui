@@ -48,6 +48,14 @@ jobs:
       # and install is free to quietly resolve something else.
       - run: npm ci
 
+      # Ported from the monorepo, where it was a pytest that read this file.
+      # It guards an ABSENCE — no gateway key attached from this server's own
+      # environment without a caller check — and an absence is what a future
+      # edit reintroduces silently. Publishing the console with an ambient key
+      # would make every anonymous visitor a fully authorised gateway client.
+      - name: proxy carries no ambient authority
+        run: node scripts/check-proxy-authority.mjs
+
       - name: typecheck
         run: npx tsc --noEmit
 
