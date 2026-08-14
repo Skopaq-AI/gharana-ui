@@ -1,25 +1,43 @@
 import React, { useState, useEffect } from 'react';
-import { Music2, Clock, Flame, Plus, ChevronDown, Radio, Smartphone, Globe } from 'lucide-react';
-import { TrackItem } from '../types';
+import {
+  Music2,
+  Clock,
+  Flame,
+  Plus,
+  ChevronDown,
+  Radio,
+  Smartphone,
+  Loader2,
+  AlertTriangle,
+  RefreshCw
+} from 'lucide-react';
+import type { Project } from '../lib/api';
 
 interface HeaderProps {
-  tracks: TrackItem[];
-  activeTrack: TrackItem;
-  onSelectTrack: (track: TrackItem) => void;
-  onNewTrack: () => void;
+  projects: Project[];
+  activeProject: Project | null;
+  loading?: boolean;
+  error?: string | null;
+  onSelectProject: (project: Project) => void;
+  onRefreshProjects?: () => void;
+  onNewProject: () => void;
   pendingCheckpointsCount: number;
   onOpenMobileApproval?: () => void;
-  onToggleLandingPage?: () => void;
+  /** Disabled when there is nothing real to show in the mobile preview. */
+  mobileApprovalDisabledReason?: string | null;
 }
 
 export const Header: React.FC<HeaderProps> = ({
-  tracks,
-  activeTrack,
-  onSelectTrack,
-  onNewTrack,
+  projects,
+  activeProject,
+  loading = false,
+  error = null,
+  onSelectProject,
+  onRefreshProjects,
+  onNewProject,
   pendingCheckpointsCount,
   onOpenMobileApproval,
-  onToggleLandingPage
+  mobileApprovalDisabledReason = null
 }) => {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [timeString, setTimeString] = useState('');
@@ -53,76 +71,134 @@ export const Header: React.FC<HeaderProps> = ({
     return () => clearInterval(timer);
   }, []);
 
+  const selectorLabel = loading && !activeProject
+    ? 'Loading projects…'
+    : activeProject
+    ? activeProject.title
+    : error
+    ? 'Projects unavailable'
+    : 'No project selected';
+
   return (
-    <header className="sticky top-0 z-40 border-b border-[#241c33] bg-[#08060d]/90 backdrop-blur-xl px-4 md:px-6 py-3">
-      <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
-        
-        {/* Left Side: Brand & Track Selector */}
-        <div className="flex items-center gap-4 min-w-0">
+    <header className="sticky top-0 z-40 border-b border-line bg-bg/90 backdrop-blur-xl px-4 md:px-6 py-3">
+      {/*
+        The row wraps. Nothing here is allowed to sit on top of anything else at
+        any width: both groups shrink (min-w-0) and the right-hand controls wrap
+        onto a second line before they would collide with the selector.
+      */}
+      <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+
+        {/* Left Side: Brand & Project Selector */}
+        <div className="flex items-center gap-3 min-w-0 flex-1 basis-[260px]">
           {/* Studio Brand */}
           <div className="flex items-center gap-2.5 flex-shrink-0">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-[#f2542d] to-[#ffd48a] flex items-center justify-center shadow-md shadow-[#f2542d]/20">
-              <Radio className="w-4 h-4 text-[#08060d] font-bold" />
+            <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-accent to-caution flex items-center justify-center shadow-md shadow-[var(--accent-dim)]">
+              <Radio className="w-4 h-4 text-bg font-bold" />
             </div>
             <div className="hidden sm:block">
               <div className="flex items-center gap-2">
-                <span className="font-serif font-bold text-base tracking-wider text-[#f5efe6]">
+                <span className="font-serif font-bold text-base tracking-wider text-ink">
                   GHARANA
                 </span>
-                <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[#1f182d] text-[#ffd48a] border border-[#342847]">
+                <span className="hidden md:inline text-[10px] font-mono px-1.5 py-0.5 rounded bg-surface text-caution border border-line-strong">
                   v2.5
                 </span>
               </div>
             </div>
           </div>
 
-          <span className="hidden sm:inline text-[#342847]">|</span>
+          <span className="hidden sm:inline text-line-strong flex-shrink-0">|</span>
 
-          {/* Track Selection Dropdown */}
-          <div className="relative min-w-0">
+          {/* Project Selection Dropdown */}
+          <div className="relative min-w-0 flex-1 max-w-xs">
             <button
               onClick={() => setDropdownOpen(!dropdownOpen)}
-              className="flex items-center gap-2.5 px-3 py-1.5 rounded-xl bg-[#120e1b] hover:bg-[#1a1426] border border-[#241c33] hover:border-[#342847] text-xs font-sans text-[#f5efe6] transition-all"
+              className="w-full flex items-center gap-2.5 px-3 py-1.5 rounded-xl bg-panel hover:bg-surface border border-line hover:border-line-strong text-xs font-sans text-ink transition-all min-w-0"
+              title={activeProject ? `${activeProject.title} — ${activeProject.artist_name}` : selectorLabel}
             >
-              <Music2 className="w-3.5 h-3.5 text-[#f2542d] flex-shrink-0" />
-              <div className="text-left truncate">
-                <span className="font-serif font-semibold text-xs text-[#f5efe6] block truncate">
-                  {activeTrack.title}
-                </span>
-              </div>
-              <span className="hidden md:inline-block px-2 py-0.5 rounded bg-[#08060d] text-[10px] font-mono text-[#a294b8] border border-[#241c33]">
-                {activeTrack.language}
+              {loading && !activeProject ? (
+                <Loader2 className="w-3.5 h-3.5 text-caution animate-spin flex-shrink-0" />
+              ) : error ? (
+                <AlertTriangle className="w-3.5 h-3.5 text-blocking flex-shrink-0" />
+              ) : (
+                <Music2 className="w-3.5 h-3.5 text-accent flex-shrink-0" />
+              )}
+              <span className="font-serif font-semibold text-xs text-ink truncate min-w-[5rem] flex-1 text-left">
+                {selectorLabel}
               </span>
-              <ChevronDown className={`w-3.5 h-3.5 text-[#a294b8] transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
+              {activeProject && (
+                <span className="hidden xl:inline-block px-2 py-0.5 rounded bg-bg text-[10px] font-mono text-muted border border-line flex-shrink-0">
+                  {activeProject.status}
+                </span>
+              )}
+              <ChevronDown
+                className={`w-3.5 h-3.5 text-muted transition-transform flex-shrink-0 ${dropdownOpen ? 'rotate-180' : ''}`}
+              />
             </button>
 
             {/* Dropdown Menu */}
             {dropdownOpen && (
-              <div className="absolute left-0 mt-2 w-72 bg-[#120e1b] rounded-2xl border border-[#342847] shadow-2xl py-2 z-50">
-                <div className="px-3.5 py-1.5 text-[10px] font-mono text-[#a294b8] uppercase tracking-wider border-b border-[#241c33]">
-                  Active Studio Tracks
-                </div>
-                <div className="max-h-64 overflow-y-auto">
-                  {tracks.map((t) => (
+              <div className="absolute left-0 mt-2 w-72 max-w-[calc(100vw-2rem)] bg-panel rounded-2xl border border-line-strong shadow-2xl py-2 z-50">
+                <div className="px-3.5 py-1.5 flex items-center justify-between gap-2 text-[10px] font-mono text-muted uppercase tracking-wider border-b border-line">
+                  <span>Projects</span>
+                  {onRefreshProjects && (
                     <button
-                      key={t.id}
+                      onClick={() => onRefreshProjects()}
+                      className="flex items-center gap-1 hover:text-ink transition-colors"
+                      title="Reload projects from the gateway"
+                    >
+                      <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
+                      <span>Refresh</span>
+                    </button>
+                  )}
+                </div>
+
+                <div className="max-h-64 overflow-y-auto">
+                  {loading && projects.length === 0 && (
+                    <p className="px-3.5 py-3 text-xs font-mono text-muted flex items-center gap-2">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Loading projects…
+                    </p>
+                  )}
+
+                  {!loading && error && (
+                    <div className="px-3.5 py-3 space-y-1">
+                      <p className="text-xs font-mono text-blocking break-words">{error}</p>
+                      {onRefreshProjects && (
+                        <button
+                          onClick={() => onRefreshProjects()}
+                          className="text-[11px] font-mono text-caution underline underline-offset-4"
+                        >
+                          Try again
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {!loading && !error && projects.length === 0 && (
+                    <p className="px-3.5 py-3 text-xs font-mono text-muted">
+                      No projects yet. Use “New Project” to create one.
+                    </p>
+                  )}
+
+                  {projects.map((p) => (
+                    <button
+                      key={p.id}
                       onClick={() => {
-                        onSelectTrack(t);
+                        onSelectProject(p);
                         setDropdownOpen(false);
                       }}
-                      className={`w-full text-left px-3.5 py-2.5 hover:bg-[#1a1426] flex items-center justify-between transition-colors ${
-                        t.id === activeTrack.id ? 'bg-[#1a1426] border-l-2 border-[#f2542d] text-[#ffd48a]' : 'text-[#f5efe6]'
+                      className={`w-full text-left px-3.5 py-2.5 hover:bg-surface flex items-center justify-between gap-2 transition-colors ${
+                        p.id === activeProject?.id
+                          ? 'bg-surface border-l-2 border-accent text-caution'
+                          : 'text-ink'
                       }`}
                     >
-                      <div className="truncate pr-2">
-                        <p className="font-serif text-xs font-medium truncate">{t.title}</p>
-                        <p className="text-[10px] text-[#a294b8] font-mono">{t.artist} • {t.language}</p>
+                      <div className="truncate pr-2 min-w-0">
+                        <p className="font-serif text-xs font-medium truncate">{p.title}</p>
+                        <p className="text-[10px] text-muted font-mono truncate">{p.artist_name}</p>
                       </div>
-                      {t.audioMetrics?.integratedLufs && (
-                        <span className="text-[10px] font-mono text-[#43c9a0] flex-shrink-0">
-                          {t.audioMetrics.integratedLufs} LUFS
-                        </span>
-                      )}
+                      <span className="text-[10px] font-mono text-muted flex-shrink-0">{p.status}</span>
                     </button>
                   ))}
                 </div>
@@ -132,22 +208,25 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         {/* Right Side: Status Badges & Direct Actions */}
-        <div className="flex items-center gap-2.5 flex-shrink-0">
-          
-          {/* Subtle Studio Clock */}
-          <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#120e1b] border border-[#241c33] text-xs font-mono text-[#a294b8]">
-            <Clock className="w-3.5 h-3.5 text-[#ffd48a]" />
-            <span className="text-[#f5efe6]">{timeString}</span>
+        <div className="flex items-center gap-2 flex-wrap justify-end min-w-0">
+
+          {/* Subtle Studio Clock — first thing to go when space is tight */}
+          <div className="hidden 2xl:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-panel border border-line text-xs font-mono text-muted">
+            <Clock className="w-3.5 h-3.5 text-caution" />
+            <span className="text-ink">{timeString}</span>
             <span>•</span>
-            <span className="text-[#ffd48a] font-serif text-[11px]">{ragaInfo.name}</span>
+            <span className="text-caution font-serif text-[11px]">{ragaInfo.name}</span>
           </div>
 
           {/* Pending Sign-offs Indicator */}
           {pendingCheckpointsCount > 0 && (
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#f2542d]/10 border border-[#f2542d]/30 text-xs font-mono text-[#f2542d]">
-              <Flame className="w-3.5 h-3.5 text-[#f2542d]" />
+            <div
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[var(--accent-dim)] border border-[var(--accent-border)] text-xs font-mono text-accent flex-shrink-0"
+              title={`${pendingCheckpointsCount} stage(s) awaiting your approval`}
+            >
+              <Flame className="w-3.5 h-3.5 text-accent" />
               <span className="font-bold">{pendingCheckpointsCount}</span>
-              <span className="hidden sm:inline">Checkpoints</span>
+              <span className="hidden xl:inline">Checkpoints</span>
             </div>
           )}
 
@@ -155,33 +234,22 @@ export const Header: React.FC<HeaderProps> = ({
           {onOpenMobileApproval && (
             <button
               onClick={onOpenMobileApproval}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#25D366]/10 hover:bg-[#25D366]/20 border border-[#25D366]/30 text-xs font-mono text-[#25D366] transition-all"
-              title="Test Single-Stage WhatsApp Mobile Approval"
+              disabled={Boolean(mobileApprovalDisabledReason)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-whatsapp/10 hover:bg-whatsapp/20 border border-whatsapp/30 text-xs font-mono text-whatsapp transition-all flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+              title={mobileApprovalDisabledReason ?? 'Open the WhatsApp mobile approval view'}
             >
               <Smartphone className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">WhatsApp Nudge</span>
-            </button>
-          )}
-
-          {/* Landing Page Switcher */}
-          {onToggleLandingPage && (
-            <button
-              onClick={onToggleLandingPage}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#120e1b] hover:bg-[#1a1426] border border-[#241c33] hover:border-[#342847] text-xs font-mono text-[#a294b8] hover:text-[#f5efe6] transition-all"
-              title="View Product Landing Page"
-            >
-              <Globe className="w-3.5 h-3.5 text-[#ffd48a]" />
-              <span className="hidden md:inline">Landing Page</span>
+              <span className="hidden lg:inline">WhatsApp Nudge</span>
             </button>
           )}
 
           {/* Primary Action Button */}
           <button
-            onClick={onNewTrack}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-[#f2542d] hover:bg-[#ff7a4d] text-white font-mono font-bold text-xs shadow-lg shadow-[#f2542d]/20 transition-all"
+            onClick={onNewProject}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-accent hover:bg-accent-hover text-accent-on font-mono font-bold text-xs shadow-lg shadow-[var(--accent-dim)] transition-all flex-shrink-0"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Ingest Track</span>
+            <span className="hidden sm:inline">New Project</span>
           </button>
         </div>
 

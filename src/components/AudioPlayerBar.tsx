@@ -1,291 +1,145 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Play, Pause, Volume2, VolumeX, Activity, BarChart2, Radio, Terminal, RotateCcw, RotateCw } from 'lucide-react';
-import { TrackItem } from '../types';
+import React from 'react';
+import { Play, Activity, Terminal, Loader2, AlertTriangle, FileAudio } from 'lucide-react';
+import type { ArtifactRef, Project, QCReport } from '../lib/api';
 
 interface AudioPlayerBarProps {
-  track: TrackItem;
+  project: Project | null;
+  /** The audio artifact the QC report was measured from, if one is uploaded. */
+  artifact: ArtifactRef | null;
+  /** Output of the qc_analysis stage. null = the project has not been measured. */
+  qcReport: QCReport | null;
+  loading?: boolean;
+  error?: string | null;
   onInspectRawMetrics: () => void;
 }
 
+/** Format a measured number, or say plainly that it was never measured. */
+const Readout: React.FC<{ label: string; value: string | null; tone?: string }> = ({
+  label,
+  value,
+  tone = 'text-ink'
+}) => (
+  <div className="text-right min-w-[104px] whitespace-nowrap">
+    <p className="text-[10px] text-dim uppercase">{label}</p>
+    {value !== null ? (
+      <p className={`${tone} font-semibold`}>{value}</p>
+    ) : (
+      <p className="text-[11px] text-muted italic">Not measured yet</p>
+    )}
+  </div>
+);
+
 export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({
-  track,
+  project,
+  artifact,
+  qcReport,
+  loading = false,
+  error = null,
   onInspectRawMetrics
 }) => {
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [isMuted, setIsMuted] = useState(false);
-  const [animSeed, setAnimSeed] = useState(0);
-  const waveformRef = useRef<HTMLDivElement | null>(null);
+  const lufs = qcReport?.lufs_integrated ?? null;
+  const truePeak = qcReport?.true_peak_db ?? null;
 
-  const metrics = track.audioMetrics;
-  const duration = track.durationSeconds || 180;
-
-  // Playback timer tick
-  useEffect(() => {
-    let interval: any = null;
-    if (isPlaying) {
-      interval = setInterval(() => {
-        setCurrentTime((prev) => {
-          if (prev >= duration) {
-            setIsPlaying(false);
-            return 0;
-          }
-          return prev + 1;
-        });
-      }, 1000);
-    } else {
-      clearInterval(interval);
-    }
-    return () => clearInterval(interval);
-  }, [isPlaying, duration]);
-
-  // Dynamic animation frame effect for real-time waveform bounce while playing
-  useEffect(() => {
-    let animFrame: number;
-    if (isPlaying) {
-      const loop = () => {
-        setAnimSeed((prev) => (prev + 1) % 100);
-        animFrame = requestAnimationFrame(loop);
-      };
-      animFrame = requestAnimationFrame(loop);
-    }
-    return () => cancelAnimationFrame(animFrame);
-  }, [isPlaying]);
-
-  const formatTime = (secs: number) => {
-    const mins = Math.floor(secs / 60);
-    const remainder = Math.floor(secs % 60);
-    return `${mins.toString().padStart(2, '0')}:${remainder.toString().padStart(2, '0')}`;
-  };
-
-  const progressPercent = Math.min(100, Math.max(0, (currentTime / duration) * 100));
-
-  // Handle clicking on waveform to seek position
-  const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!waveformRef.current) return;
-    const rect = waveformRef.current.getBoundingClientRect();
-    const clickX = e.clientX - rect.left;
-    const percentage = Math.max(0, Math.min(1, clickX / rect.width));
-    const newTime = Math.round(percentage * duration);
-    setCurrentTime(newTime);
-  };
-
-  const handleSkip = (seconds: number) => {
-    setCurrentTime((prev) => Math.max(0, Math.min(duration, prev + seconds)));
-  };
-
-  // Generate 48 waveform bar heights based on LUFS measurements or track characteristics
-  const totalBars = 48;
-  const rawLufs = metrics?.lufsOverTime || [];
-  
-  const waveformBars = Array.from({ length: totalBars }, (_, idx) => {
-    let baseHeight = 30;
-
-    if (rawLufs.length > 0) {
-      const sampleIdx = Math.floor((idx / totalBars) * rawLufs.length);
-      const lufsVal = rawLufs[sampleIdx] ?? -14;
-      baseHeight = Math.min(100, Math.max(15, ((lufsVal + 28) / 22) * 100));
-    } else {
-      // Deterministic pseudo-waveform seed based on track ID and index
-      const hash = (track.id.charCodeAt(idx % track.id.length) * (idx + 1) * 37) % 80;
-      baseHeight = 20 + hash;
-    }
-
-    // Apply live dynamic audio modulation if currently playing near this bar
-    const barProgress = (idx / totalBars) * 100;
-    const isPlayingBar = Math.abs(barProgress - progressPercent) < 4;
-    
-    let currentHeight = baseHeight;
-    if (isPlaying && isPlayingBar) {
-      const livePulse = Math.sin((animSeed * 0.2) + idx) * 18;
-      currentHeight = Math.min(100, Math.max(15, baseHeight + livePulse));
-    } else if (isPlaying) {
-      const ambientPulse = Math.cos((animSeed * 0.1) + idx * 0.5) * 6;
-      currentHeight = Math.min(100, Math.max(10, baseHeight + ambientPulse));
-    }
-
-    return {
-      index: idx,
-      height: currentHeight,
-      barProgress,
-      isPlayed: barProgress <= progressPercent
-    };
-  });
-
-  // Frequency bins live visualizer values
-  const freqData = metrics?.frequencyBins || {
-    subBass: -18,
-    bass: -12,
-    lowMid: -14,
-    mid: -10,
-    highMid: -16,
-    highs: -22
-  };
-
-  const freqBands = [
-    { label: 'SUB', db: freqData.subBass, color: '#f2542d' },
-    { label: 'BASS', db: freqData.bass, color: '#ffd48a' },
-    { label: 'LMID', db: freqData.lowMid, color: '#ffd48a' },
-    { label: 'MID', db: freqData.mid, color: '#43c9a0' },
-    { label: 'HMID', db: freqData.highMid, color: '#43c9a0' },
-    { label: 'HIGH', db: freqData.highs, color: '#a294b8' }
-  ];
+  const subtitle = project
+    ? artifact
+      ? `${project.artist_name} • ${artifact.kind} v${artifact.version}`
+      : `${project.artist_name} • no audio artifact uploaded yet`
+    : 'No project selected';
 
   return (
-    <div className="glass-panel border-t border-[#342847]/80 bg-[#0d0a14]/90 p-4 md:px-8 py-3.5 rounded-2xl mb-6 shadow-xl space-y-3">
-      <div className="flex flex-col lg:flex-row items-center justify-between gap-4">
-        
-        {/* Track Metadata & Play Controls */}
-        <div className="flex items-center gap-3 w-full lg:w-auto">
+    <div className="glass-panel border-t border-line-strong/80 bg-bg/90 p-4 md:px-8 py-3 rounded-2xl mb-6">
+      {/*
+        Stacks until xl: the sidebar eats ~288px, so a single row at lg would
+        crush the measurement panel down to a few characters.
+      */}
+      <div className="flex flex-col xl:flex-row items-center justify-between gap-4">
+
+        {/* Track Metadata & (unavailable) Play Controls */}
+        <div className="flex items-center gap-4 w-full xl:w-auto min-w-0">
           <button
-            onClick={() => handleSkip(-10)}
-            className="p-2 rounded-xl bg-[#08060d] hover:bg-[#191324] border border-[#241c33] text-[#a294b8] hover:text-[#f5efe6] transition-colors"
-            title="Rewind 10s"
+            disabled
+            className="w-12 h-12 rounded-xl bg-surface text-dim border border-line-strong flex items-center justify-center font-bold flex-shrink-0 cursor-not-allowed"
+            title="The gateway stores artifacts but does not stream them to the browser yet — nothing to play here."
           >
-            <RotateCcw className="w-4 h-4" />
+            <Play className="w-6 h-6 fill-current ml-0.5" />
           </button>
 
-          <button
-            onClick={() => setIsPlaying(!isPlaying)}
-            className="w-12 h-12 rounded-2xl bg-[#f2542d] hover:bg-[#ff7a4d] text-white flex items-center justify-center font-bold transition-all shadow-lg shadow-[#f2542d]/30 flex-shrink-0 hover:scale-105"
-            title={isPlaying ? "Pause Track" : "Play Track"}
-          >
-            {isPlaying ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 fill-current ml-0.5" />}
-          </button>
-
-          <button
-            onClick={() => handleSkip(10)}
-            className="p-2 rounded-xl bg-[#08060d] hover:bg-[#191324] border border-[#241c33] text-[#a294b8] hover:text-[#f5efe6] transition-colors"
-            title="Forward 10s"
-          >
-            <RotateCw className="w-4 h-4" />
-          </button>
-
-          <div className="min-w-[170px]">
-            <div className="flex items-center gap-2">
-              <h3 className="font-serif text-sm font-bold text-[#f5efe6] truncate">
-                {track.title}
-              </h3>
-              {isPlaying && (
-                <span className="w-2 h-2 rounded-full bg-[#43c9a0] animate-ping" />
-              )}
-            </div>
-            <p className="text-xs text-[#a294b8] font-mono-num">
-              {track.artist} • <span className="text-[#ffd48a] font-semibold">{track.keySignature || 'Key N/A'}</span>
-            </p>
-          </div>
-
-          <div className="hidden sm:flex items-center gap-1.5 font-mono-num text-xs text-[#a294b8] ml-1 bg-[#08060d] px-2.5 py-1 rounded-xl border border-[#241c33]">
-            <span className="text-[#f5efe6] font-bold">{formatTime(currentTime)}</span>
-            <span>/</span>
-            <span>{formatTime(duration)}</span>
+          <div className="min-w-0">
+            <h3 className="font-serif text-base font-semibold text-ink truncate">
+              {project ? project.title : 'No project selected'}
+            </h3>
+            <p className="text-xs text-muted font-mono-num truncate">{subtitle}</p>
           </div>
         </div>
 
-        {/* Dynamic Waveform Visualizer & Interactive Scrubber */}
-        <div className="flex-1 w-full max-w-xl mx-2 space-y-1.5">
-          <div className="flex justify-between items-center text-[10px] font-mono-num text-[#a294b8]">
-            <span className="flex items-center gap-1.5 text-[#ffd48a] font-bold">
-              <Activity className="w-3.5 h-3.5 text-[#f2542d]" />
-              DYNAMIC DSP WAVEFORM SCRUBBER
+        {/* Measured loudness panel */}
+        <div className="flex-1 w-full xl:max-w-xl xl:mx-2 min-w-[220px]">
+          <div className="flex justify-between items-center gap-2 text-[10px] font-mono-num text-muted mb-1">
+            <span className="flex items-center gap-1.5 text-caution min-w-0 truncate">
+              <Activity className="w-3.5 h-3.5 flex-shrink-0" />
+              <span className="truncate">MEASURED LOUDNESS (BS.1770)</span>
             </span>
-            <span className="flex items-center gap-2">
-              {isPlaying ? (
-                <span className="text-[#43c9a0] font-bold flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#43c9a0] animate-pulse" />
-                  AUDIO PLAYBACK LIVE
-                </span>
+            <span className="flex-shrink-0 whitespace-nowrap">
+              {lufs !== null ? (
+                <span className="text-accent font-bold">{lufs} LUFS Integrated</span>
               ) : (
-                <span className="text-[#a294b8]">Click waveform to seek</span>
-              )}
-              {metrics?.integratedLufs !== undefined && (
-                <span className="text-[#43c9a0] font-bold">
-                  • {metrics.integratedLufs} LUFS
-                </span>
+                <span className="text-muted italic">Not measured yet</span>
               )}
             </span>
           </div>
 
-          {/* Interactive Waveform Bar Container */}
-          <div
-            ref={waveformRef}
-            onClick={handleSeek}
-            className="relative h-11 bg-[#08060d] rounded-xl p-1.5 border border-[#241c33] hover:border-[#342847] cursor-pointer flex items-end gap-0.5 overflow-hidden group select-none transition-colors"
-            title="Click to seek playback position"
-          >
-            {waveformBars.map((bar) => (
-              <div
-                key={bar.index}
-                className={`flex-1 rounded-sm transition-all duration-150 ${
-                  bar.isPlayed
-                    ? isPlaying
-                      ? 'bg-gradient-to-t from-[#f2542d] to-[#ffd48a] shadow-[0_0_8px_rgba(242,84,45,0.4)]'
-                      : 'bg-[#ffd48a]'
-                    : 'bg-[#241c33] group-hover:bg-[#2d2340]'
-                }`}
-                style={{ height: `${bar.height}%` }}
-              />
-            ))}
-
-            {/* Glowing Playhead indicator line */}
-            <div
-              className="absolute top-0 bottom-0 w-1 bg-[#f2542d] shadow-[0_0_12px_#f2542d] pointer-events-none transition-all duration-200 z-10 rounded-full"
-              style={{ left: `${progressPercent}%` }}
-            >
-              <div className="w-2.5 h-2.5 rounded-full bg-[#ffd48a] border border-[#f2542d] -ml-0.75 -mt-0.5 shadow-md" />
-            </div>
+          <div className="h-9 bg-bg rounded-lg border border-line flex items-center justify-center gap-2 px-3 overflow-hidden text-xs text-muted font-mono-num">
+            {loading ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-caution flex-shrink-0" />
+                <span className="truncate">Loading measurements…</span>
+              </>
+            ) : error ? (
+              <>
+                <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 text-blocking" />
+                <span className="truncate text-blocking" title={error}>{error}</span>
+              </>
+            ) : !project ? (
+              <span className="truncate">Select a project to see its measurements</span>
+            ) : !artifact ? (
+              <>
+                <FileAudio className="w-3.5 h-3.5 flex-shrink-0" />
+                <span
+                  className="truncate"
+                  title="No audio artifact yet. The backend measures loudness and true peak when one is uploaded."
+                >
+                  No audio artifact — upload one to have it measured
+                </span>
+              </>
+            ) : qcReport ? (
+              <span className="truncate" title={qcReport.summary}>
+                {qcReport.summary || 'QC report has no written summary.'}
+              </span>
+            ) : (
+              <span className="truncate">Not measured yet — run the QC stage of a pipeline run</span>
+            )}
           </div>
         </div>
 
-        {/* Live Frequency Spectrum & Raw Metrics Trigger */}
-        <div className="flex items-center gap-3 justify-end font-mono-num text-xs w-full sm:w-auto">
-          {/* 6-Band Mini EQ Analyzer */}
-          <div className="hidden xl:flex items-center gap-1 bg-[#08060d] p-2 rounded-xl border border-[#241c33]">
-            {freqBands.map((band, idx) => {
-              const normHeight = Math.min(100, Math.max(15, ((band.db + 30) / 25) * 100));
-              const liveHeight = isPlaying
-                ? Math.min(100, Math.max(15, normHeight + Math.sin(animSeed * 0.3 + idx) * 20))
-                : normHeight;
+        {/* Precise Numerical Readouts */}
+        <div className="flex items-center gap-4 flex-wrap w-full xl:w-auto justify-end font-mono-num text-xs">
+          <Readout
+            label="True Peak"
+            value={truePeak !== null ? `${truePeak} dBTP` : null}
+          />
 
-              return (
-                <div key={band.label} className="flex flex-col items-center gap-1 w-3">
-                  <div className="w-1.5 h-6 bg-[#120e1b] rounded-full overflow-hidden flex items-end">
-                    <div
-                      className="w-full rounded-full transition-all duration-150"
-                      style={{
-                        height: `${liveHeight}%`,
-                        backgroundColor: band.color
-                      }}
-                    />
-                  </div>
-                  <span className="text-[8px] text-[#a294b8]">{band.label}</span>
-                </div>
-              );
-            })}
-          </div>
-
-          <div className="text-right hidden sm:block">
-            <p className="text-[9px] text-[#a294b8] uppercase font-bold">True Peak</p>
-            <p className="text-[#f5efe6] font-bold">
-              {metrics?.truePeakDbtp !== undefined ? `${metrics.truePeakDbtp} dBTP` : 'N/A'}
-            </p>
-          </div>
-
-          <button
-            onClick={() => setIsMuted(!isMuted)}
-            className="p-2 rounded-xl bg-[#08060d] hover:bg-[#191324] border border-[#241c33] text-[#a294b8] hover:text-[#f5efe6] transition-colors"
-            title={isMuted ? "Unmute" : "Mute"}
-          >
-            {isMuted ? <VolumeX className="w-4 h-4 text-[#f2542d]" /> : <Volume2 className="w-4 h-4" />}
-          </button>
+          <Readout
+            label="QC Issues"
+            value={qcReport ? String(qcReport.issues.length) : null}
+            tone={qcReport && qcReport.issues.length > 0 ? 'text-accent-hover' : 'text-ink'}
+          />
 
           <button
             onClick={onInspectRawMetrics}
-            className="p-2 rounded-xl bg-[#191324] hover:bg-[#241c33] border border-[#342847] text-[#ffd48a] transition-colors flex items-center gap-1.5 text-xs font-mono"
-            title="Inspect Raw Audio DSP Payload"
+            className="p-2 rounded-lg bg-surface hover:bg-line border border-line-strong text-caution transition-colors"
+            title="Inspect the raw QC report returned by the pipeline"
           >
             <Terminal className="w-4 h-4" />
-            <span className="hidden sm:inline">Raw DSP</span>
           </button>
         </div>
 
@@ -293,4 +147,3 @@ export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({
     </div>
   );
 };
-

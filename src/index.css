@@ -1,83 +1,178 @@
 @import "tailwindcss";
+@import "./styles/tokens.css";
+
+/**
+ * Tailwind sees the tokens.
+ *
+ * `@theme inline` maps the palette in styles/tokens.css onto Tailwind's colour
+ * scale, so `bg-panel`, `text-muted`, `border-strong` and `text-accent` exist as
+ * utilities. That mapping is the whole point: until now a component that wanted
+ * the panel colour had no utility to reach for, so it wrote `bg-[#120e1b]` —
+ * 1,860 times, across 41 distinct colours, while the design system sat in a file
+ * nobody imported.
+ *
+ * `inline` rather than a plain `@theme` so tokens.css stays the single
+ * definition. Two files defining colours is the problem, not the fix.
+ */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-line: var(--border);
+  --color-line-strong: var(--border-strong);
+
+  --color-ink: var(--text);
+  --color-muted: var(--text-muted);
+  --color-dim: var(--text-dim);
+  --color-absent: var(--text-absent);
+
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-on: var(--accent-on);
+
+  --color-blocking: var(--blocking);
+  --color-blocking-on: var(--blocking-on);
+  --color-caution: var(--caution);
+  --color-caution-on: var(--caution-on);
+  /* Jade. The machine reporting a number came back within spec — deliberately
+     NOT --accent, which now means "waiting on a person". See tokens.css. */
+  --color-ok: var(--ok);
+  --color-ok-on: var(--ok-on);
+  --color-info: var(--info);
+  --color-whatsapp: var(--brand-whatsapp);
+
+  --font-headline: var(--font-headline);
+  --font-body: var(--font-body);
+  --font-mono: var(--font-mono);
+}
 
 @layer base {
-  :root {
-    --font-serif: 'Fraunces', Georgia, serif;
-    --font-sans: 'Instrument Sans', -apple-system, BlinkMacSystemFont, sans-serif;
-    --font-mono: 'JetBrains Mono', monospace;
-  }
-
   body {
-    font-family: var(--font-sans);
-    background-color: #08060d;
-    color: #f5efe6;
+    font-family: var(--font-body);
+    background-color: var(--bg);
+    color: var(--text);
     overflow-x: hidden;
   }
 
-  h1, h2, h3, h4, .font-serif-prose {
-    font-family: var(--font-serif);
-  }
-
-  .font-mono-num {
-    font-family: var(--font-mono);
-    font-variant-numeric: tabular-nums;
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-headline);
+    letter-spacing: -0.02em;
   }
 }
 
-/* Night Raga exact token helper classes */
-.bg-ink-950 { background-color: #08060d; }
-.bg-ink-900 { background-color: #0d0a14; }
-.bg-ink-850 { background-color: #120e1b; }
-.bg-ink-800 { background-color: #191324; }
-.bg-ink-700 { background-color: #241c33; }
-.bg-ink-600 { background-color: #342847; }
+/**
+ * A measured value. The strongest typographic treatment on any screen, because
+ * the measurement IS the product.
+ */
+.measured {
+  font-family: var(--font-mono);
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
 
-.text-parchment { color: #f5efe6; }
-.text-muted { color: #a294b8; }
-.text-faint { color: #6d6183; }
+/**
+ * The absence of a measurement, styled deliberately.
+ *
+ * Three separate components in this repo have shipped a hardcoded LUFS value as
+ * a fallback for missing data. This class exists so "we did not measure this"
+ * has somewhere obvious to go — and so it can never be confused, at a glance,
+ * with a value that was measured.
+ */
+.not-measured {
+  font-family: var(--font-body);
+  color: var(--text-absent);
+  font-style: normal;
+}
 
-.text-vermilion-300 { color: #ff9d7a; }
-.text-vermilion-400 { color: #ff7a4d; }
-.text-vermilion-500 { color: #f2542d; }
+/**
+ * The anchor on a finding: a timestamp, a measured-value key, a QC topic.
+ *
+ * This chip is what separates an A&R finding from a chatbot's opinion, so it is
+ * pinned immediately before the claim and always mono. It is not a tag and must
+ * not be styled like one.
+ */
+.locator {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+  background: var(--accent-dim);
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.375rem;
+}
 
-.text-saffron-300 { color: #ffd48a; }
-.text-saffron-400 { color: #f5b544; }
+/**
+ * Waiting for a human. The one piece of motion in the console, and it earns it:
+ * a stage that needs approval is the only thing on screen the artist must act
+ * on, and constraint 3 says nothing proceeds without them.
+ *
+ * It reads as an ember now rather than a lime strobe, which is not decoration —
+ * vermilion is the colour this palette reserves for "a person is needed", so
+ * the pulse and the approve button are the same colour on purpose, and neither
+ * is the colour used to report that a measurement passed.
+ */
+@keyframes await-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 10px var(--accent-dim), inset 0 0 12px rgba(242, 84, 45, 0.1);
+    border-color: var(--accent-border);
+  }
+  50% {
+    box-shadow: 0 0 22px rgba(242, 84, 45, 0.45), inset 0 0 20px rgba(242, 84, 45, 0.2);
+    border-color: var(--accent-hover);
+  }
+}
 
-.text-jade-300 { color: #7fe3c0; }
-.text-jade-400 { color: #43c9a0; }
+.awaiting-approval {
+  animation: await-pulse 2.8s infinite ease-in-out;
+}
 
-.text-plum-400 { color: #a56bd6; }
-
-/* Translucent Glass Layers */
+/**
+ * Glass. Panels that sit ON something — the ambient orbs below, or a video —
+ * rather than on flat ground.
+ *
+ * Used sparingly and never on a panel that carries a measurement: blur behind a
+ * number is a legibility risk taken for decoration, and this console does not
+ * make that trade with the one thing it exists to show.
+ */
 .glass {
-  backdrop-filter: blur(40px);
-  -webkit-backdrop-filter: blur(40px);
-  background: rgba(13, 10, 20, 0.4);
-  border: 1px solid rgba(109, 97, 131, 0.2);
-}
-
-.glass-panel {
   background: rgba(13, 10, 20, 0.55);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
-  border: 1px solid rgba(109, 97, 131, 0.25);
+  border: 1px solid var(--border);
 }
 
-.glass-panel-interactive {
+.glass-interactive {
   background: rgba(18, 14, 27, 0.6);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
-  border: 1px solid rgba(109, 97, 131, 0.25);
+  border: 1px solid var(--border);
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.glass-panel-interactive:hover {
+.glass-interactive:hover {
   background: rgba(25, 19, 36, 0.75);
-  border-color: rgba(242, 84, 45, 0.4);
+  border-color: var(--accent-border);
   transform: translateY(-2px);
 }
 
-/* Ambient glow orb & grain */
+/**
+ * Ambient light and grain.
+ *
+ * An orb is a large, heavily blurred colour field behind the ground; grain is a
+ * fractal-noise overlay at 3.5% opacity. Together they stop a flat #08060d from
+ * looking like an unstyled dark mode — the same reason a photograph of a studio
+ * has dust in the light rather than clean air.
+ *
+ * The noise is an inline SVG data URI, so it costs no request and cannot fail
+ * to load and leave a panel looking wrong.
+ */
 .orb {
   position: absolute;
   border-radius: 50%;
@@ -91,38 +186,16 @@
   position: absolute;
   inset: 0;
   opacity: 0.035;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
-}
-
-/* Ember pulse for Human Checkpoint items waiting for approval */
-@keyframes ember-pulse {
-  0%, 100% {
-    box-shadow: 0 0 10px rgba(242, 84, 45, 0.25), inset 0 0 12px rgba(242, 84, 45, 0.12);
-    border-color: rgba(242, 84, 45, 0.55);
-  }
-  50% {
-    box-shadow: 0 0 22px rgba(242, 84, 45, 0.55), inset 0 0 20px rgba(242, 84, 45, 0.25);
-    border-color: rgba(255, 122, 77, 0.95);
-  }
-}
-
-.ember-pulse {
-  animation: ember-pulse 2.8s infinite ease-in-out;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ember-pulse {
+  .awaiting-approval {
     animation: none;
-    border-color: rgba(242, 84, 45, 0.8);
-    box-shadow: 0 0 12px rgba(242, 84, 45, 0.3);
+    border-color: var(--accent);
+    box-shadow: 0 0 12px var(--accent-dim);
   }
-  .glass-panel-interactive:hover {
+  .glass-interactive:hover {
     transform: none;
   }
 }
-
-/* Film grain SVG overlay */
-.film-grain {
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.05'/%3E%3C/svg%3E");
-}
-

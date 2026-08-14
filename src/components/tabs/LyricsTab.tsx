@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   BookOpen,
   Sparkles,
@@ -10,860 +10,751 @@ import {
   Trash2,
   ArrowUp,
   ArrowDown,
-  Wand2,
   AlertTriangle,
   Code2,
-  Check,
-  X,
   RefreshCw,
-  HelpCircle,
-  FileText
+  PlugZap,
+  Upload,
+  FileText,
+  Info
 } from 'lucide-react';
-import { TrackItem, LyricDraftWire } from '../../types';
-import { HumanCheckpointCard } from '../HumanCheckpointCard';
-import { PageHeader, SectionCard, SectionHeader, StatCard } from '../SectionPanel';
-import { PipelineProgressTracker } from '../PipelineProgressTracker';
+import { TrackItem } from '../../types';
+import { PageHeader } from '../SectionPanel';
 import {
-  INDIC_LYRIC_PRESETS,
-  LanguagePreset,
-  LyricSectionPreset,
-  LyricLinePreset,
-  CoWriterSuggestionPreset
-} from '../../data/lyricPresets';
+  listArtifacts,
+  listProjects,
+  uploadArtifact,
+  type ArtifactRef,
+  type LyricDraft,
+  type Project
+} from '../../lib/api';
+import { describeError, formatTimestamp } from './SplitsTab';
+import { lyricLanguagesFrom, type LyricLanguage } from '../../data/lyricLanguages';
+import { listCapabilities } from '../../lib/api';
 
-interface LyricsTabProps {
-  track: TrackItem;
-  onUpdateTrack: (updated: TrackItem) => void;
-  onInspectRaw: (title: string, payload: any) => void;
+/**
+ * Lyric Studio.
+ *
+ * Honest status of this screen: the editor is real and local, storage is real,
+ * the co-writer agent is NOT reachable.
+ *
+ *  - There is a lyric_studio MCP agent (draft_lyrics, refine_section,
+ *    transliterate, rhyme_suggest), but no shipped pipeline template contains a
+ *    lyric stage and the gateway exposes no per-agent tool endpoint. So there is
+ *    no way, today, for this console to ask a model for a line. Every "generate"
+ *    affordance has been removed rather than faked.
+ *  - The draft can be stored: `lyric_draft` is a real ArtifactKind, so a draft
+ *    uploads to the project as a versioned artifact through the gateway.
+ *  - The syllable numbers are a browser-side vowel-count estimate and are
+ *    labelled as such everywhere they appear. They are not a prosody measurement
+ *    and no agent produced them.
+ */
+
+interface EditableLine {
+  id: string;
+  text: string;
+  transliteration: string;
 }
 
-export const LyricsTab: React.FC<LyricsTabProps> = ({
-  track,
-  onUpdateTrack,
-  onInspectRaw
-}) => {
-  // Determine current active language from track or default to Telugu
-  const initialLang = (track.lyricAnalysis?.language && INDIC_LYRIC_PRESETS[track.lyricAnalysis.language])
-    ? track.lyricAnalysis.language
-    : 'Telugu';
+interface EditableSection {
+  id: string;
+  name: string;
+  lines: EditableLine[];
+}
 
-  const [selectedLanguage, setSelectedLanguage] = useState<string>(initialLang);
-  const preset: LanguagePreset = INDIC_LYRIC_PRESETS[selectedLanguage] || INDIC_LYRIC_PRESETS.Telugu;
+function newId(prefix: string): string {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+}
 
-  const [selectedDialect, setSelectedDialect] = useState<string>(
-    track.lyricAnalysis?.dialect || preset.defaultDialect
+/**
+ * Rough syllable estimate: counts Indic vowel signs / independent vowels and
+ * Latin vowels. It is arithmetic on characters, nothing more.
+ */
+function estimateSyllables(text: string): number {
+  const cleaned = text.trim();
+  if (!cleaned) return 0;
+  const vowels = cleaned.match(
+    /[ఁ-ఃా-ౌఅ-ఔऄ-औा-ौஅ-ஔா-ைਅ-ਔਾ-ੌঅ-ঔা-ৌaeiouāīūēōṛñṃḥ]/gi
   );
+  if (vowels && vowels.length > 0) return Math.max(1, Math.round(vowels.length * 0.85));
+  return Math.max(1, cleaned.split(/\s+/).length * 2);
+}
 
-  const [showTransliteration, setShowTransliteration] = useState<boolean>(true);
-  const [sections, setSections] = useState<LyricSectionPreset[]>(preset.sections);
-  const [suggestions, setSuggestions] = useState<CoWriterSuggestionPreset[]>(preset.suggestions);
-  const [promptInput, setPromptInput] = useState<string>('');
-  const [isGenerating, setIsGenerating] = useState<boolean>(false);
-  const [isSaved, setIsSaved] = useState<boolean>(false);
-  const [showWireModal, setShowWireModal] = useState<boolean>(false);
-  const [activeEditingLineId, setActiveEditingLineId] = useState<string | null>(null);
+interface LyricsTabProps {
+  /** Legacy prop from the mock-data console. Not used as a data source. */
+  track?: TrackItem;
+  onUpdateTrack?: (updated: TrackItem) => void;
+  onInspectRaw?: (title: string, payload: any) => void;
+  projectId?: string | null;
+}
 
-  // Sync preset when language selector changes
-  const handleLanguageChange = (newLang: string) => {
-    setSelectedLanguage(newLang);
-    const newPreset = INDIC_LYRIC_PRESETS[newLang] || INDIC_LYRIC_PRESETS.Telugu;
-    setSelectedDialect(newPreset.defaultDialect);
-    setSections(newPreset.sections);
-    setSuggestions(newPreset.suggestions);
+export const LyricsTab: React.FC<LyricsTabProps> = ({ onInspectRaw, projectId }) => {
+  // The languages lyric_studio actually claims, read from the registry. A
+  // hardcoded list would eventually offer a language the planner then refuses
+  // to route, which the artist discovers only after writing in it.
+  const [languages, setLanguages] = useState<LyricLanguage[]>([]);
+  const [selectedLanguage, setSelectedLanguage] = useState<string>('');
+  /** Artist-stated. Never offered from a list, because we do not have one. */
+  const [selectedDialect, setSelectedDialect] = useState<string>('');
+
+  useEffect(() => {
+    let cancelled = false;
+    listCapabilities()
+      .then((agents) => {
+        if (cancelled) return;
+        const langs = lyricLanguagesFrom(agents);
+        setLanguages(langs);
+        setSelectedLanguage((cur) => cur || langs[0]?.key || '');
+      })
+      .catch(() => undefined); // the picker stays empty; nothing is invented
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const [showTransliteration, setShowTransliteration] = useState(true);
+  const [sections, setSections] = useState<EditableSection[]>([]);
+
+  // --- storage (real) -------------------------------------------------------
+  const [projects, setProjects] = useState<Project[] | null>(null);
+  const [projectsError, setProjectsError] = useState<string | null>(null);
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(projectId ?? null);
+  const [drafts, setDrafts] = useState<ArtifactRef[] | null>(null);
+  const [draftsError, setDraftsError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [savedRef, setSavedRef] = useState<ArtifactRef | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    listProjects()
+      .then((rows) => {
+        if (cancelled) return;
+        setProjects(rows);
+        setActiveProjectId((current) => current ?? rows[0]?.id ?? null);
+      })
+      .catch((err) => {
+        if (!cancelled) setProjectsError(describeError(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const loadDrafts = useCallback((pid: string) => {
+    setDrafts(null);
+    setDraftsError(null);
+    listArtifacts(pid)
+      .then((rows) => setDrafts(rows.filter((a) => a.kind === 'lyric_draft')))
+      .catch((err) => setDraftsError(describeError(err)));
+  }, []);
+
+  useEffect(() => {
+    if (activeProjectId) loadDrafts(activeProjectId);
+  }, [activeProjectId, loadDrafts]);
+
+  const handleLanguageChange = (lang: string) => {
+    setSelectedLanguage(lang);
   };
 
-  // Helper to estimate syllable weight
-  const estimateSyllables = (text: string): number => {
-    if (!text || !text.trim()) return 0;
-    const cleaned = text.trim();
-    const vowelMatches = cleaned.match(/[\u0C01-\u0C03\u0C3E-\u0C4C\u0C05-\u0C14\u0904-\u0914\u093E-\u094C\u0B85-\u0B94\u0BBE-\u0BC8\u0A05-\u0A14\u0A3E-\u0A4C\u0985-\u0994\u09BE-\u09CCaeiouāīūēōṛñṃḥ]/gi);
-    if (vowelMatches && vowelMatches.length > 0) {
-      return Math.max(1, Math.round(vowelMatches.length * 0.85));
-    }
-    return Math.max(1, cleaned.split(/\s+/).length * 2);
+  const script = languages.find((l) => l.key === selectedLanguage)?.script ?? '';
+
+  const updateLine = (secId: string, lineId: string, patch: Partial<EditableLine>) => {
+    setSections((prev) =>
+      prev.map((sec) =>
+        sec.id === secId
+          ? { ...sec, lines: sec.lines.map((l) => (l.id === lineId ? { ...l, ...patch } : l)) }
+          : sec
+      )
+    );
   };
 
-  // Line editing
-  const handleLineTextChange = (secId: string, lineId: string, newText: string) => {
-    setSections(prevSecs =>
-      prevSecs.map(sec => {
+  const addLine = (secId: string) => {
+    setSections((prev) =>
+      prev.map((sec) =>
+        sec.id === secId
+          ? { ...sec, lines: [...sec.lines, { id: newId('line'), text: '', transliteration: '' }] }
+          : sec
+      )
+    );
+  };
+
+  const deleteLine = (secId: string, lineId: string) => {
+    setSections((prev) =>
+      prev.map((sec) =>
+        sec.id === secId ? { ...sec, lines: sec.lines.filter((l) => l.id !== lineId) } : sec
+      )
+    );
+  };
+
+  const moveLine = (secId: string, index: number, direction: 'up' | 'down') => {
+    setSections((prev) =>
+      prev.map((sec) => {
         if (sec.id !== secId) return sec;
-        
-        // Calculate target section syllable average
-        const validSyllables = sec.lines
-          .filter(l => l.id !== lineId && !l.flaggedMeter)
-          .map(l => l.syllables);
-        const avg = validSyllables.length > 0
-          ? Math.round(validSyllables.reduce((a, b) => a + b, 0) / validSyllables.length)
-          : 12;
-
-        const newSylCount = estimateSyllables(newText);
-        const isFlagged = Math.abs(newSylCount - avg) >= 4;
-
-        return {
-          ...sec,
-          lines: sec.lines.map(line => {
-            if (line.id !== lineId) return line;
-            return {
-              ...line,
-              text: newText,
-              syllables: newSylCount,
-              flaggedMeter: isFlagged
-            };
-          })
-        };
+        const target = direction === 'up' ? index - 1 : index + 1;
+        if (target < 0 || target >= sec.lines.length) return sec;
+        const lines = [...sec.lines];
+        const [moved] = lines.splice(index, 1);
+        lines.splice(target, 0, moved);
+        return { ...sec, lines };
       })
     );
   };
 
-  const handleTransliterationChange = (secId: string, lineId: string, newTrans: string) => {
-    setSections(prevSecs =>
-      prevSecs.map(sec => {
-        if (sec.id !== secId) return sec;
-        return {
-          ...sec,
-          lines: sec.lines.map(l => (l.id === lineId ? { ...l, transliteration: newTrans } : l))
-        };
-      })
-    );
-  };
-
-  // Line manipulation
-  const handleAddLine = (secId: string) => {
-    const newId = `line-${Date.now()}`;
-    setSections(prevSecs =>
-      prevSecs.map(sec => {
-        if (sec.id !== secId) return sec;
-        return {
-          ...sec,
-          lines: [
-            ...sec.lines,
-            {
-              id: newId,
-              text: selectedLanguage === 'Telugu' ? 'కొత్త కవితా పంక్తి' : 'नयी पंक्ति यहाँ लिखें',
-              transliteration: 'kotta kavitā paṅkti',
-              syllables: 12,
-              isAgentAssisted: false
-            }
-          ]
-        };
-      })
-    );
-    setActiveEditingLineId(newId);
-  };
-
-  const handleDeleteLine = (secId: string, lineId: string) => {
-    setSections(prevSecs =>
-      prevSecs.map(sec => {
-        if (sec.id !== secId) return sec;
-        return {
-          ...sec,
-          lines: sec.lines.filter(l => l.id !== lineId)
-        };
-      })
-    );
-  };
-
-  const handleMoveLine = (secId: string, lineIndex: number, direction: 'up' | 'down') => {
-    setSections(prevSecs =>
-      prevSecs.map(sec => {
-        if (sec.id !== secId) return sec;
-        const targetIndex = direction === 'up' ? lineIndex - 1 : lineIndex + 1;
-        if (targetIndex < 0 || targetIndex >= sec.lines.length) return sec;
-        const updatedLines = [...sec.lines];
-        const [movedLine] = updatedLines.splice(lineIndex, 1);
-        updatedLines.splice(targetIndex, 0, movedLine);
-        return { ...sec, lines: updatedLines };
-      })
-    );
-  };
-
-  // Add Section
-  const handleAddSection = () => {
-    const newSecId = `sec-${Date.now()}`;
-    const newSecName = `New Section ${sections.length + 1}`;
-    setSections(prev => [
+  const addSection = () => {
+    setSections((prev) => [
       ...prev,
       {
-        id: newSecId,
-        name: newSecName,
-        lines: [
-          {
-            id: `line-${Date.now()}`,
-            text: selectedLanguage === 'Telugu' ? 'హృదయంలో మ్రోగే నూతన నాదం' : 'दिल की गहराइयों में गूँजती आवाज़',
-            transliteration: 'hṛdayamlō mrōgē nūtana nādaṁ',
-            syllables: 11,
-            isAgentAssisted: false
-          }
-        ]
+        id: newId('sec'),
+        name: `Section ${prev.length + 1}`,
+        lines: [{ id: newId('line'), text: '', transliteration: '' }]
       }
     ]);
   };
 
-  // Accept / Dismiss Agent Suggestion
-  const handleAcceptSuggestion = (sug: CoWriterSuggestionPreset) => {
-    if (sug.sectionIndex >= sections.length) return;
-    const targetSec = sections[sug.sectionIndex];
-    if (sug.lineIndex >= targetSec.lines.length) return;
-
-    setSections(prevSecs =>
-      prevSecs.map((sec, sIdx) => {
-        if (sIdx !== sug.sectionIndex) return sec;
-        return {
-          ...sec,
-          lines: sec.lines.map((line, lIdx) => {
-            if (lIdx !== sug.lineIndex) return line;
-            return {
-              ...line,
-              text: sug.suggestedText,
-              transliteration: sug.suggestedTransliteration,
-              syllables: sug.syllableCount,
-              isAgentAssisted: true,
-              flaggedMeter: false
-            };
-          })
-        };
-      })
-    );
-
-    // Remove accepted suggestion from stream
-    setSuggestions(prev => prev.filter(s => s.id !== sug.id));
+  const removeSection = (secId: string) => {
+    setSections((prev) => prev.filter((s) => s.id !== secId));
   };
 
-  const handleDismissSuggestion = (sugId: string) => {
-    setSuggestions(prev => prev.filter(s => s.id !== sugId));
-  };
+  const totalLines = sections.reduce((n, s) => n + s.lines.length, 0);
+  const hasContent = sections.some((s) => s.lines.some((l) => l.text.trim().length > 0));
 
-  // Generate Co-Writer Suggestions
-  const handleGenerateCoWriterSuggestions = (overridePrompt?: string) => {
-    const promptToUse = overridePrompt || promptInput;
-    setIsGenerating(true);
-
-    setTimeout(() => {
-      const newSugId = `sug-gen-${Date.now()}`;
-      let newSug: CoWriterSuggestionPreset;
-
-      if (selectedLanguage === 'Telugu') {
-        newSug = {
-          id: newSugId,
-          sectionIndex: 0,
-          lineIndex: 0,
-          originalText: sections[0]?.lines[0]?.text || 'మౌనంలో దాగున్న గానం',
-          suggestedText: 'రేతిరి కాంతుల్లో మెరిసేటి వన్నెల తార',
-          suggestedTransliteration: 'rētiri kāntullō merisēṭi vannela tāra',
-          type: 'dialect_nuance',
-          explanation: `Generated for "${selectedDialect}": Uses regional vocabulary ("రేతిరి", "వన్నెల") matching late-night mood.`,
-          syllableCount: 12,
-          meterNote: 'Aligned to 12 Matra prosody'
-        };
-      } else {
-        newSug = {
-          id: newSugId,
-          sectionIndex: 0,
-          lineIndex: 0,
-          originalText: sections[0]?.lines[0]?.text || 'ख़ामोशी में बहती हवा',
-          suggestedText: 'चाँदनी रातों में गूँजे मीठी सदाएँ',
-          suggestedTransliteration: 'cāṁdnī rātōṁ mēṁ gūñjē mīṭhī sadāēṁ',
-          type: 'alternative',
-          explanation: `Refined for ${selectedDialect} with poetic flow and smooth syllable count.`,
-          syllableCount: 12,
-          meterNote: 'Syllabic weight 12'
-        };
-      }
-
-      setSuggestions(prev => [newSug, ...prev]);
-      setIsGenerating(false);
-      setPromptInput('');
-    }, 1200);
-  };
-
-  // Construct backend LyricDraft wire payload
-  const buildWirePayload = (): LyricDraftWire => {
-    return {
+  /** The LyricDraft wire shape, built locally so the artifact is schema-shaped. */
+  const draftPayload: LyricDraft = useMemo(
+    () => ({
       language: selectedLanguage,
-      script: preset.script,
+      script,
       dialect: selectedDialect,
-      sections: sections.map(s => ({
-        name: s.name,
-        lines: s.lines.map(l => l.text)
-      })),
+      sections: sections.map((s) => ({ name: s.name, lines: s.lines.map((l) => l.text) })),
       transliteration: showTransliteration
-        ? sections.map(s => ({
-            name: s.name,
-            lines: s.lines.map(l => l.transliteration)
-          }))
+        ? sections.map((s) => ({ name: s.name, lines: s.lines.map((l) => l.transliteration) }))
         : null,
-      notes: `${selectedLanguage} (${selectedDialect}) lyric draft co-written with GHARANA Lyric Agent. ${preset.notes}`
-    };
-  };
+      notes: `Written in the GHARANA console lyric editor. No lyric agent was involved: none is reachable from the console today.`
+    }),
+    [selectedLanguage, script, selectedDialect, sections, showTransliteration]
+  );
 
-  // Save to track model
-  const handleSaveDraft = () => {
-    const wire = buildWirePayload();
-    const fullText = sections
-      .map(s => `[${s.name}]\n` + s.lines.map(l => l.text).join('\n'))
-      .join('\n\n');
-
-    onUpdateTrack({
-      ...track,
-      lyricAnalysis: {
-        language: selectedLanguage as any,
-        dialect: selectedDialect,
-        script: preset.script,
-        primaryTheme: track.lyricAnalysis?.primaryTheme || 'Regional poetic narrative',
-        rhymeScheme: track.lyricAnalysis?.rhymeScheme || 'AABB / Matra Rhyme',
-        meterRegularityScore: calculateMeterScore(),
-        copyrightRiskFlag: track.lyricAnalysis?.copyrightRiskFlag || false,
-        copyrightNotes: track.lyricAnalysis?.copyrightNotes,
-        culturalResonanceNotes: preset.notes,
-        lyricsText: fullText,
-        lyricDraft: wire,
-        checkpointStatus: track.lyricAnalysis?.checkpointStatus || 'pending_artist_approval'
-      }
-    });
-
-    setIsSaved(true);
-    setTimeout(() => setIsSaved(false), 2000);
-  };
-
-  // Calculate live meter regularity score
-  const calculateMeterScore = (): number => {
-    let totalLines = 0;
-    let flaggedLines = 0;
-    sections.forEach(sec => {
-      sec.lines.forEach(l => {
-        totalLines++;
-        if (l.flaggedMeter) flaggedLines++;
+  const saveDraftToProject = async () => {
+    if (!activeProjectId || !hasContent) return;
+    setSaving(true);
+    setSaveError(null);
+    setSavedRef(null);
+    try {
+      const body = JSON.stringify(draftPayload, null, 2);
+      const file = new File([body], `lyric-draft-${Date.now()}.json`, {
+        type: 'application/json'
       });
-    });
-    if (totalLines === 0) return 100;
-    return Math.round(((totalLines - flaggedLines) / totalLines) * 100);
-  };
-
-  const handleApproveCheckpoint = () => {
-    if (!track.lyricAnalysis) return;
-    onUpdateTrack({
-      ...track,
-      lyricAnalysis: {
-        ...track.lyricAnalysis,
-        checkpointStatus: 'approved'
-      }
-    });
-  };
-
-  const handleRejectCheckpoint = () => {
-    if (!track.lyricAnalysis) return;
-    onUpdateTrack({
-      ...track,
-      lyricAnalysis: {
-        ...track.lyricAnalysis,
-        checkpointStatus: 'rejected'
-      }
-    });
+      const ref = await uploadArtifact(activeProjectId, file, 'lyric_draft');
+      setSavedRef(ref);
+      loadDrafts(activeProjectId);
+    } catch (err) {
+      setSaveError(describeError(err));
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
     <div className="space-y-6">
-      
-      {/* Pipeline Track Completion Progress */}
-      <PipelineProgressTracker track={track} activeStage="lyrics" />
+      {/* NOT-CONNECTED BANNER — the first thing on the screen, by design */}
+      <div className="p-6 rounded-3xl bg-panel border border-caution/50 shadow-2xl space-y-4">
+        <div className="flex items-start gap-4">
+          <div className="p-2.5 rounded-2xl bg-caution/10 border border-caution/40 text-caution flex-shrink-0">
+            <PlugZap className="w-6 h-6" />
+          </div>
+          <div className="space-y-2 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="font-serif text-lg font-bold text-ink">
+                Lyric co-writer agent — not connected yet
+              </h2>
+              <span className="px-2.5 py-0.5 rounded-full bg-caution/15 text-caution border border-caution/40 font-mono text-[10px] font-bold uppercase tracking-wider">
+                Editor is local
+              </span>
+            </div>
+            <p className="font-serif text-xs text-muted leading-relaxed">
+              The <span className="font-mono text-caution">lyric_studio</span> agent exists in the
+              backend with four tools — draft_lyrics, refine_section, transliterate and
+              rhyme_suggest — but no shipped pipeline template includes a lyric stage, and the
+              gateway exposes runs rather than individual agent tools. Until a lyric stage lands, a
+              draft arrives here the way every other agent output does: as the output of a stage on
+              a run, with its own human checkpoint. Nothing on this screen calls a model.
+            </p>
+          </div>
+        </div>
 
-      {/* Standardized Page Header */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+          {[
+            {
+              title: 'Works today',
+              body: 'Typing, section structure, transliteration lines, and saving the draft to the project as a lyric_draft artifact.',
+              tone: 'text-accent border-accent/40'
+            },
+            {
+              title: 'Waiting on the backend',
+              body: 'A lyric stage in a pipeline template (or a gateway route for lyric_studio tools) before drafting, refining or rhyme suggestions can run.',
+              tone: 'text-caution border-caution/40'
+            },
+            {
+              title: 'Never faked here',
+              body: 'No generated lines, no meter verdicts, no copyright-risk score. Syllable counts below are a browser estimate and are labelled as one.',
+              tone: 'text-info border-info/40'
+            }
+          ].map((card) => (
+            <div key={card.title} className={`p-4 rounded-2xl bg-bg border ${card.tone}`}>
+              <span className="font-mono text-[10px] uppercase tracking-wider font-bold block mb-1">
+                {card.title}
+              </span>
+              <p className="font-serif text-[11px] text-muted leading-relaxed">{card.body}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
       <PageHeader
         icon={BookOpen}
-        title="Lyric Studio & Indic Prosody Engine"
-        description="Native Indic scripts as primary text, dialect nuances, and real-time syllabic meter tracking."
-        badge="Prosody V2"
+        title="Lyric Studio & Indic Script Editor"
+        description="Native Indic script as the primary text, with an optional ISO transliteration line."
+        badge="Local Draft"
         action={
-          <div className="flex items-center gap-3">
-            <button
-              onClick={handleSaveDraft}
-              className="px-4 py-2.5 rounded-xl bg-[#f2542d] hover:bg-[#ff7a4d] text-white font-mono text-xs font-bold transition-all shadow-md flex items-center gap-2"
-            >
-              {isSaved ? <CheckCircle2 className="w-4 h-4 text-white" /> : <FileText className="w-4 h-4" />}
-              <span>{isSaved ? 'Saved Draft ✓' : 'Save Lyric Draft'}</span>
-            </button>
-
-            <button
-              onClick={() => setShowWireModal(true)}
-              className="px-3 py-2.5 rounded-xl bg-[#191324] hover:bg-[#241c33] text-[#ffd48a] border border-[#342847] font-mono text-xs font-bold transition-all flex items-center gap-2"
-              title="Inspect JSON Payload"
-            >
-              <Code2 className="w-4 h-4" />
-              <span className="hidden sm:inline">JSON Wire</span>
-            </button>
-          </div>
+          <button
+            onClick={() => onInspectRaw?.('LyricDraft (as it would be sent)', draftPayload)}
+            disabled={!onInspectRaw}
+            className="px-3 py-2.5 rounded-xl bg-surface hover:bg-line text-caution border border-line-strong font-mono text-xs font-bold transition-all flex items-center gap-2 disabled:opacity-40"
+          >
+            <Code2 className="w-4 h-4" />
+            <span className="hidden sm:inline">JSON Wire</span>
+          </button>
         }
       >
-        {/* Language, Dialect & Transliteration Selectors */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          
-          {/* Language Selector */}
           <div className="space-y-1">
-            <label className="text-[10px] font-mono text-[#6d6183] uppercase tracking-wider block">
+            <label className="text-[10px] font-mono text-dim uppercase tracking-wider block">
               Primary Language
             </label>
             <div className="relative">
               <select
                 value={selectedLanguage}
-                onChange={e => handleLanguageChange(e.target.value)}
-                className="w-full bg-[#120e1b] border border-[#342847] text-[#f5efe6] font-serif text-sm rounded-xl px-3 py-2 focus:outline-none focus:border-[#f2542d] appearance-none"
+                onChange={(e) => handleLanguageChange(e.target.value)}
+                className="w-full bg-panel border border-line-strong text-ink font-serif text-sm rounded-xl px-3 py-2 focus:outline-none focus:border-accent appearance-none"
               >
-                {Object.keys(INDIC_LYRIC_PRESETS).map(lang => (
-                  <option key={lang} value={lang}>
-                    {lang} — {INDIC_LYRIC_PRESETS[lang].script.split(' ')[0]}
+                {languages.map((lang) => (
+                  <option key={lang.key} value={lang.key}>
+                    {lang.label}
+                    {lang.script ? ` — ${lang.script}` : ''}
                   </option>
                 ))}
               </select>
-              <Languages className="w-4 h-4 text-[#a294b8] absolute right-3 top-2.5 pointer-events-none" />
+              <Languages className="w-4 h-4 text-muted absolute right-3 top-2.5 pointer-events-none" />
             </div>
           </div>
 
-          {/* Regional Dialect Selector */}
           <div className="space-y-1">
-            <label className="text-[10px] font-mono text-[#6d6183] uppercase tracking-wider block">
+            <label className="text-[10px] font-mono text-dim uppercase tracking-wider block">
               Regional Dialect
             </label>
-            <select
+            {/* Free text, not a menu. The registry declares languages, never
+                dialects — a dropdown here could only be a list we made up, and
+                it would be wrong for exactly the artists it claimed to serve. */}
+            <input
+              type="text"
               value={selectedDialect}
-              onChange={e => setSelectedDialect(e.target.value)}
-              className="w-full bg-[#120e1b] border border-[#342847] text-[#ffd48a] font-serif text-sm rounded-xl px-3 py-2 focus:outline-none focus:border-[#f5b544]"
-            >
-              {preset.dialects.map(d => (
-                <option key={d} value={d}>
-                  {d}
-                </option>
-              ))}
-            </select>
+              onChange={(e) => setSelectedDialect(e.target.value)}
+              placeholder="optional — yours to name"
+              className="w-full bg-panel border border-line-strong text-caution font-serif text-sm rounded-xl px-3 py-2 focus:outline-none focus:border-caution placeholder:text-dim"
+            />
           </div>
 
-          {/* Transliteration Toggle */}
           <div className="space-y-1">
-            <label className="text-[10px] font-mono text-[#6d6183] uppercase tracking-wider block">
+            <label className="text-[10px] font-mono text-dim uppercase tracking-wider block">
               ISO Transliteration
             </label>
             <button
               onClick={() => setShowTransliteration(!showTransliteration)}
               className={`w-full h-10 px-3.5 rounded-xl border font-mono text-xs flex items-center justify-between transition-colors ${
                 showTransliteration
-                  ? 'bg-[#241c33] border-[#a56bd6]/50 text-[#a56bd6]'
-                  : 'bg-[#120e1b] border-[#342847] text-[#6d6183]'
+                  ? 'bg-line border-info/50 text-info'
+                  : 'bg-panel border-line-strong text-dim'
               }`}
             >
               <span>{showTransliteration ? 'Subtext: ISO Roman On' : 'Subtext: Native Only'}</span>
               {showTransliteration ? (
-                <ToggleRight className="w-5 h-5 text-[#a56bd6]" />
+                <ToggleRight className="w-5 h-5 text-info" />
               ) : (
-                <ToggleLeft className="w-5 h-5 text-[#6d6183]" />
+                <ToggleLeft className="w-5 h-5 text-dim" />
               )}
             </button>
           </div>
 
-          {/* Prosody Meter Score */}
           <div className="space-y-1">
-            <label className="text-[10px] font-mono text-[#6d6183] uppercase tracking-wider block">
-              Syllabic Meter Score
+            <label className="text-[10px] font-mono text-dim uppercase tracking-wider block">
+              Draft Size
             </label>
-            <div className="h-10 px-3.5 bg-[#120e1b] border border-[#342847] rounded-xl flex items-center justify-between">
-              <span className="font-mono text-xs text-[#a294b8]">Prosody Regularity:</span>
-              <span className="font-mono text-sm font-bold text-[#43c9a0]">
-                {calculateMeterScore()}%
+            <div className="h-10 px-3.5 bg-panel border border-line-strong rounded-xl flex items-center justify-between">
+              <span className="font-mono text-xs text-muted">Lines / sections:</span>
+              <span className="font-mono text-sm font-bold text-ink">
+                {totalLines} / {sections.length}
               </span>
             </div>
           </div>
-
         </div>
       </PageHeader>
 
-      {/* Main Two-Column Workspace: LEFT = Draft Page, RIGHT = Agent Co-Writer */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-        
-        {/* LEFT COLUMN: The Draft Workspace (7 Cols) */}
+        {/* LEFT: the editor */}
         <div className="lg:col-span-7 space-y-6">
-          
           <div className="flex items-center justify-between px-2">
             <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-[#f2542d] animate-pulse" />
-              <h2 className="font-serif text-lg font-semibold text-[#f5efe6] tracking-wide">
-                Lyric Draft ({selectedLanguage} — {selectedDialect})
+              <span className="w-2.5 h-2.5 rounded-full bg-accent" />
+              <h2 className="font-serif text-lg font-semibold text-ink tracking-wide">
+                Draft ({selectedLanguage || 'no language selected'}
+                {selectedDialect ? ` — ${selectedDialect}` : ''})
               </h2>
             </div>
-            <span className="text-xs font-mono text-[#a294b8]">
-              {sections.reduce((acc, s) => acc + s.lines.length, 0)} Total Lines
+            <span className="text-xs font-mono text-muted">
+              {totalLines} line{totalLines === 1 ? '' : 's'}
             </span>
           </div>
 
-          {/* Sections List */}
-          {sections.map((section, sIdx) => {
-            // Calculate section average syllables for prosody baseline
-            const secSyllables = section.lines.map(l => l.syllables);
-            const targetSyl = secSyllables.length > 0
-              ? Math.round(secSyllables.reduce((a, b) => a + b, 0) / secSyllables.length)
-              : 12;
+          {sections.length === 0 ? (
+            <div className="p-10 rounded-3xl border border-dashed border-line-strong bg-bg/60 text-center space-y-4">
+              <BookOpen className="w-8 h-8 mx-auto text-dim" />
+              <h3 className="font-serif text-base font-bold text-ink">Empty draft</h3>
+              <p className="font-serif text-xs text-muted max-w-md mx-auto leading-relaxed">
+                Nothing is written yet, and nothing will be written for you. Add a section and the
+                words are yours; nothing is stored until you save.
+              </p>
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-3 pt-1">
+                <button
+                  onClick={addSection}
+                  className="px-4 py-2.5 rounded-xl bg-accent hover:bg-accent-hover text-accent-on font-serif text-xs font-bold flex items-center gap-2 transition-all"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Start a blank section</span>
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              {sections.map((section) => {
+                const estimates = section.lines.map((l) => estimateSyllables(l.text));
+                const nonZero = estimates.filter((n) => n > 0);
+                const average =
+                  nonZero.length > 0
+                    ? Math.round(nonZero.reduce((a, b) => a + b, 0) / nonZero.length)
+                    : 0;
 
-            return (
-              <div
-                key={section.id}
-                className="glass rounded-3xl p-6 border border-[#342847] bg-[#0d0a14]/60 space-y-5 transition-all hover:border-[#6d6183]/40"
-              >
-                {/* Section Header */}
-                <div className="flex items-center justify-between border-b border-[#241c33] pb-3">
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="text"
-                      value={section.name}
-                      onChange={e => {
-                        const newName = e.target.value;
-                        setSections(prev =>
-                          prev.map(s => (s.id === section.id ? { ...s, name: newName } : s))
-                        );
-                      }}
-                      className="font-serif text-base font-bold text-[#f5efe6] bg-transparent focus:bg-[#120e1b] focus:outline-none focus:ring-1 focus:ring-[#f2542d] px-2 py-0.5 rounded-lg border border-transparent hover:border-[#342847]"
-                    />
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-[#241c33] text-[#a294b8] border border-[#342847]">
-                      Meter Target: ~{targetSyl} syl/line
-                    </span>
-                  </div>
-
-                  <button
-                    onClick={() => handleAddLine(section.id)}
-                    className="px-2.5 py-1 rounded-lg bg-[#241c33] hover:bg-[#342847] text-[#ffd48a] border border-[#f5b544]/30 text-xs font-semibold flex items-center gap-1 transition-colors"
+                return (
+                  <div
+                    key={section.id}
+                    className="glass rounded-3xl p-6 border border-line-strong bg-bg/60 space-y-5 transition-all hover:border-dim/40"
                   >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>Add Line</span>
-                  </button>
-                </div>
-
-                {/* Lines Container */}
-                <div className="space-y-4">
-                  {section.lines.map((line, lIdx) => {
-                    const isEditing = activeEditingLineId === line.id;
-
-                    return (
-                      <div
-                        key={line.id}
-                        className={`group relative p-4 rounded-2xl border transition-all ${
-                          line.flaggedMeter
-                            ? 'bg-[#18110b]/80 border-[#f2542d]/50'
-                            : line.isAgentAssisted
-                            ? 'bg-[#141021]/80 border-[#a56bd6]/40'
-                            : 'bg-[#120e1b]/70 border-[#241c33] hover:border-[#342847]'
-                        }`}
-                      >
-                        {/* Line Top Toolbar & Badges */}
-                        <div className="flex items-center justify-between mb-2 text-[10px] font-mono">
-                          <div className="flex items-center gap-2">
-                            <span className="text-[#6d6183]">Line {lIdx + 1}</span>
-
-                            {/* Agent Assisted Badge */}
-                            {line.isAgentAssisted && (
-                              <span className="px-2 py-0.5 rounded-full bg-[#a56bd6]/20 text-[#a56bd6] border border-[#a56bd6]/40 flex items-center gap-1">
-                                <Sparkles className="w-3 h-3 text-[#a56bd6]" />
-                                Agent-assisted
-                              </span>
-                            )}
-
-                            {/* Meter Flag Warning */}
-                            {line.flaggedMeter && (
-                              <span className="px-2 py-0.5 rounded-full bg-[#f2542d]/20 text-[#f2542d] border border-[#f2542d]/40 flex items-center gap-1 animate-pulse">
-                                <AlertTriangle className="w-3 h-3 text-[#f2542d]" />
-                                Meter Anomaly ({line.syllables} syl vs ~{targetSyl})
-                              </span>
-                            )}
-                          </div>
-
-                          <div className="flex items-center gap-3">
-                            {/* Syllable Weight Indicator */}
-                            <span
-                              className={`px-2 py-0.5 rounded font-mono text-[11px] ${
-                                line.flaggedMeter
-                                  ? 'bg-[#f2542d]/20 text-[#f2542d] font-bold'
-                                  : 'bg-[#241c33] text-[#ffd48a]'
-                              }`}
-                            >
-                              {line.syllables} syl
-                            </span>
-
-                            {/* Actions: Move Up / Down / Delete */}
-                            <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
-                              <button
-                                onClick={() => handleMoveLine(section.id, lIdx, 'up')}
-                                disabled={lIdx === 0}
-                                className="p-1 hover:bg-[#241c33] text-[#a294b8] hover:text-[#f5efe6] rounded disabled:opacity-30"
-                                title="Move line up"
-                              >
-                                <ArrowUp className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                onClick={() => handleMoveLine(section.id, lIdx, 'down')}
-                                disabled={lIdx === section.lines.length - 1}
-                                className="p-1 hover:bg-[#241c33] text-[#a294b8] hover:text-[#f5efe6] rounded disabled:opacity-30"
-                                title="Move line down"
-                              >
-                                <ArrowDown className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                onClick={() => handleDeleteLine(section.id, line.id)}
-                                className="p-1 hover:bg-[#f2542d]/20 text-[#a294b8] hover:text-[#f2542d] rounded"
-                                title="Delete line"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Line Editable Native Script (Primary Text) */}
-                        <div className="space-y-1">
-                          <textarea
-                            value={line.text}
-                            onChange={e => handleLineTextChange(section.id, line.id, e.target.value)}
-                            rows={1}
-                            placeholder="Write lyric line in native script..."
-                            className="w-full bg-transparent font-serif text-lg md:text-xl text-[#f5efe6] leading-relaxed focus:outline-none focus:bg-[#08060d] focus:border focus:border-[#f2542d]/50 rounded-lg p-1.5 resize-none transition-all"
-                          />
-
-                          {/* ISO Transliteration Subtext */}
-                          {showTransliteration && (
-                            <div className="flex items-center gap-2 pl-1">
-                              <span className="text-[9px] font-mono uppercase text-[#6d6183]">ISO:</span>
-                              <input
-                                type="text"
-                                value={line.transliteration || ''}
-                                onChange={e =>
-                                  handleTransliterationChange(section.id, line.id, e.target.value)
-                                }
-                                placeholder="ISO transliteration..."
-                                className="w-full bg-transparent font-mono text-xs text-[#a294b8] focus:outline-none focus:text-[#ffd48a]"
-                              />
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Trigger Agent Suggestion for specific line */}
-                        <div className="mt-2 pt-2 border-t border-[#241c33]/50 flex justify-end">
-                          <button
-                            onClick={() => {
-                              handleGenerateCoWriterSuggestions(
-                                `Provide a rhyme and meter fix in ${selectedDialect} dialect for: "${line.text}"`
-                              );
-                            }}
-                            className="text-[11px] font-serif text-[#a56bd6] hover:text-[#c492f2] flex items-center gap-1 transition-colors"
-                          >
-                            <Wand2 className="w-3 h-3 text-[#a56bd6]" />
-                            <span>Ask Agent to improve line {lIdx + 1}</span>
-                          </button>
-                        </div>
+                    <div className="flex items-center justify-between border-b border-line pb-3 gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <input
+                          type="text"
+                          value={section.name}
+                          onChange={(e) =>
+                            setSections((prev) =>
+                              prev.map((s) =>
+                                s.id === section.id ? { ...s, name: e.target.value } : s
+                              )
+                            )
+                          }
+                          className="font-serif text-base font-bold text-ink bg-transparent focus:bg-panel focus:outline-none focus:ring-1 focus:ring-accent px-2 py-0.5 rounded-lg border border-transparent hover:border-line-strong min-w-0"
+                        />
+                        {average > 0 && (
+                          <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-line text-muted border border-line-strong flex-shrink-0">
+                            ~{average} syl/line (estimate)
+                          </span>
+                        )}
                       </div>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })}
 
-          {/* Add Section Button */}
-          <button
-            onClick={handleAddSection}
-            className="w-full py-4 rounded-3xl border border-dashed border-[#342847] hover:border-[#f2542d]/60 bg-[#0d0a14]/40 hover:bg-[#120e1b] text-[#a294b8] hover:text-[#f5efe6] font-serif text-sm flex items-center justify-center gap-2 transition-all"
-          >
-            <Plus className="w-4 h-4 text-[#f2542d]" />
-            <span>Add New Song Section (Verse / Chorus / Bridge)</span>
-          </button>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <button
+                          onClick={() => addLine(section.id)}
+                          className="px-2.5 py-1 rounded-lg bg-line hover:bg-line-strong text-caution border border-caution/30 text-xs font-semibold flex items-center gap-1 transition-colors"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>Add Line</span>
+                        </button>
+                        <button
+                          onClick={() => removeSection(section.id)}
+                          className="p-1.5 text-muted hover:text-accent transition-colors"
+                          title="Remove section"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
 
-        </div>
+                    <div className="space-y-4">
+                      {section.lines.map((line, lIdx) => {
+                        const syllables = estimates[lIdx];
+                        const outlier = average > 0 && syllables > 0 && Math.abs(syllables - average) >= 4;
 
-        {/* RIGHT COLUMN: Agent Co-Writer Panel (5 Cols) */}
-        <div className="lg:col-span-5 space-y-6 lg:sticky lg:top-6">
-          
-          {/* Agent Control Box */}
-          <div className="glass rounded-3xl p-6 border border-[#342847] bg-[#0d0a14]/90 space-y-5">
-            <div className="flex items-center justify-between border-b border-[#241c33] pb-3">
-              <div className="flex items-center gap-2">
-                <div className="w-2.5 h-2.5 rounded-full bg-[#43c9a0] animate-pulse" />
-                <h3 className="font-serif text-base font-bold text-[#f5efe6]">
-                  Lyric Co-Writer Agent
-                </h3>
-              </div>
-              <span className="text-[10px] font-mono text-[#43c9a0] bg-[#43c9a0]/10 border border-[#43c9a0]/30 px-2 py-0.5 rounded-full">
-                Indic-LLM Active
-              </span>
-            </div>
+                        return (
+                          <div
+                            key={line.id}
+                            className={`group relative p-4 rounded-2xl border transition-all ${
+                              outlier
+                                ? 'bg-caution/80 border-caution/40'
+                                : 'bg-panel/70 border-line hover:border-line-strong'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between mb-2 text-[10px] font-mono">
+                              <div className="flex items-center gap-2">
+                                <span className="text-dim">Line {lIdx + 1}</span>
+                                {outlier && (
+                                  <span className="px-2 py-0.5 rounded-full bg-caution/15 text-caution border border-caution/40 flex items-center gap-1">
+                                    <AlertTriangle className="w-3 h-3" />
+                                    {syllables} vs section average {average} (estimate only)
+                                  </span>
+                                )}
+                              </div>
 
-            {/* Quick Prompt Chips */}
-            <div className="space-y-2">
-              <span className="text-[10px] font-mono text-[#6d6183] uppercase tracking-wider block">
-                Quick Co-Writing Prompts
-              </span>
-              <div className="flex flex-wrap gap-1.5">
-                {[
-                  { label: '✨ Fix Meter Anomalies', prompt: 'Fix the meter anomalies in the draft' },
-                  { label: '🌊 Refine Dialect', prompt: `Enhance lyrics with authentic ${selectedDialect} vocabulary` },
-                  { label: '🎵 Suggest Rhymes', prompt: 'Generate internal rhyme options for chorus' },
-                  { label: '🌺 Add Metaphors', prompt: 'Suggest poetic nature metaphors in native script' }
-                ].map((chip, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => handleGenerateCoWriterSuggestions(chip.prompt)}
-                    className="px-2.5 py-1 rounded-lg bg-[#120e1b] hover:bg-[#241c33] border border-[#342847] text-[11px] font-serif text-[#a294b8] hover:text-[#ffd48a] transition-all"
-                  >
-                    {chip.label}
-                  </button>
-                ))}
-              </div>
-            </div>
+                              <div className="flex items-center gap-3">
+                                <span
+                                  className="px-2 py-0.5 rounded font-mono text-[11px] bg-line text-muted"
+                                  title="Browser-side vowel-count estimate. Not an agent measurement."
+                                >
+                                  ~{syllables} syl
+                                </span>
 
-            {/* Prompt Input Box */}
-            <div className="space-y-2">
-              <textarea
-                value={promptInput}
-                onChange={e => setPromptInput(e.target.value)}
-                placeholder={`Ask co-writer (e.g. "Suggest a 12-syllable line in ${selectedDialect} dialect for Verse 1")...`}
-                rows={3}
-                className="w-full bg-[#120e1b] border border-[#342847] rounded-xl p-3 font-serif text-xs text-[#f5efe6] focus:outline-none focus:border-[#a56bd6] placeholder-[#6d6183] resize-none"
-              />
+                                <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                                  <button
+                                    onClick={() => moveLine(section.id, lIdx, 'up')}
+                                    disabled={lIdx === 0}
+                                    className="p-1 hover:bg-line text-muted hover:text-ink rounded disabled:opacity-30"
+                                    title="Move line up"
+                                  >
+                                    <ArrowUp className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => moveLine(section.id, lIdx, 'down')}
+                                    disabled={lIdx === section.lines.length - 1}
+                                    className="p-1 hover:bg-line text-muted hover:text-ink rounded disabled:opacity-30"
+                                    title="Move line down"
+                                  >
+                                    <ArrowDown className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => deleteLine(section.id, line.id)}
+                                    className="p-1 hover:bg-[var(--accent-dim)] text-muted hover:text-accent rounded"
+                                    title="Delete line"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="space-y-1">
+                              <textarea
+                                value={line.text}
+                                onChange={(e) => updateLine(section.id, line.id, { text: e.target.value })}
+                                rows={1}
+                                placeholder="Write the line in native script…"
+                                className="w-full bg-transparent font-serif text-lg md:text-xl text-ink leading-relaxed focus:outline-none focus:bg-bg focus:border focus:border-[var(--accent-border)] rounded-lg p-1.5 resize-none transition-all"
+                              />
+
+                              {showTransliteration && (
+                                <div className="flex items-center gap-2 pl-1">
+                                  <span className="text-[9px] font-mono uppercase text-dim">ISO:</span>
+                                  <input
+                                    type="text"
+                                    value={line.transliteration}
+                                    onChange={(e) =>
+                                      updateLine(section.id, line.id, {
+                                        transliteration: e.target.value
+                                      })
+                                    }
+                                    placeholder="Type the romanisation yourself — no transliteration agent is wired up"
+                                    className="w-full bg-transparent font-mono text-xs text-muted focus:outline-none focus:text-caution placeholder-line-strong"
+                                  />
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
 
               <button
-                onClick={() => handleGenerateCoWriterSuggestions()}
-                disabled={isGenerating}
-                className="w-full py-2.5 rounded-xl bg-gradient-to-r from-[#7d43b8] to-[#f2542d] hover:opacity-95 text-white font-serif text-xs font-semibold uppercase tracking-wider transition-all flex items-center justify-center gap-2 shadow-lg shadow-[#7d43b8]/20 disabled:opacity-50"
+                onClick={addSection}
+                className="w-full py-4 rounded-3xl border border-dashed border-line-strong hover:border-[var(--accent-border)] bg-bg/40 hover:bg-panel text-muted hover:text-ink font-serif text-sm flex items-center justify-center gap-2 transition-all"
               >
-                {isGenerating ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin text-white" />
-                    <span>Analyzing Indic Prosody...</span>
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="w-4 h-4 text-[#ffd48a]" />
-                    <span>Generate Co-Writer Suggestions</span>
-                  </>
-                )}
+                <Plus className="w-4 h-4 text-accent" />
+                <span>Add New Song Section (Verse / Chorus / Bridge)</span>
               </button>
-            </div>
-          </div>
+            </>
+          )}
+        </div>
 
-          {/* Co-Writer Suggestions Stream */}
-          <div className="space-y-4">
-            <div className="flex items-center justify-between px-1">
-              <h4 className="font-serif text-sm font-semibold text-[#f5efe6]">
-                Co-Writer Proposals ({suggestions.length})
-              </h4>
-              <span className="text-[10px] font-mono text-[#a294b8]">Accept or Dismiss</span>
+        {/* RIGHT: storage + what is missing */}
+        <div className="lg:col-span-5 space-y-6 lg:sticky lg:top-6">
+          <div className="glass rounded-3xl p-6 border border-line-strong bg-bg/90 space-y-4">
+            <div className="flex items-center justify-between border-b border-line pb-3">
+              <div className="flex items-center gap-2">
+                <Upload className="w-4 h-4 text-accent" />
+                <h3 className="font-serif text-base font-bold text-ink">
+                  Store draft on a project
+                </h3>
+              </div>
+              <span className="text-[10px] font-mono text-accent bg-accent/10 border border-accent/30 px-2 py-0.5 rounded-full">
+                Real endpoint
+              </span>
             </div>
 
-            {suggestions.length === 0 ? (
-              <div className="p-8 text-center glass rounded-3xl border border-[#342847] text-[#6d6183] font-serif text-xs space-y-2">
-                <Sparkles className="w-6 h-6 mx-auto text-[#6d6183]" />
-                <p>No pending suggestions. Click a quick prompt above to generate new line options.</p>
+            <p className="font-serif text-xs text-muted leading-relaxed">
+              Saves the draft as a versioned{' '}
+              <span className="font-mono text-caution">lyric_draft</span> artifact on the project.
+              That is storage only — no agent reads it yet, and nothing analyses it.
+            </p>
+
+            {projectsError ? (
+              <div className="p-3 rounded-xl bg-[var(--accent-dim)] border border-[var(--accent-border)] font-mono text-[11px] text-accent-hover">
+                {projectsError}
+              </div>
+            ) : projects === null ? (
+              <div className="flex items-center gap-2 font-mono text-xs text-muted">
+                <RefreshCw className="w-3.5 h-3.5 animate-spin text-info" />
+                <span>Loading projects…</span>
+              </div>
+            ) : projects.length === 0 ? (
+              <div className="p-3 rounded-xl bg-bg border border-dashed border-line-strong font-serif text-xs text-muted">
+                No projects exist yet, so there is nowhere to store a draft. Create a project first.
               </div>
             ) : (
-              suggestions.map(sug => (
-                <div
-                  key={sug.id}
-                  className="glass rounded-3xl p-5 border border-[#a56bd6]/40 bg-[#120e1b]/90 space-y-3 shadow-xl transition-all hover:border-[#a56bd6]/70"
+              <>
+                <select
+                  value={activeProjectId ?? ''}
+                  onChange={(e) => setActiveProjectId(e.target.value)}
+                  className="w-full bg-bg border border-line-strong rounded-xl px-3 py-2 font-serif text-sm text-ink focus:outline-none focus:border-caution"
                 >
-                  <div className="flex items-center justify-between text-[10px] font-mono">
-                    <span className="px-2 py-0.5 rounded bg-[#a56bd6]/20 text-[#a56bd6] border border-[#a56bd6]/30 uppercase tracking-wider font-bold">
-                      {sug.type.replace('_', ' ')}
-                    </span>
-                    <span className="text-[#a294b8]">
-                      Target: Sec {sug.sectionIndex + 1}, Line {sug.lineIndex + 1}
+                  {projects.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.title} — {p.artist_name}
+                    </option>
+                  ))}
+                </select>
+
+                <button
+                  onClick={saveDraftToProject}
+                  disabled={saving || !hasContent || !activeProjectId}
+                  className="w-full py-2.5 rounded-xl bg-accent hover:bg-accent-hover text-accent-on font-serif text-xs font-bold uppercase tracking-wider transition-all flex items-center justify-center gap-2 disabled:opacity-40"
+                >
+                  {saving ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Uploading…</span>
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="w-4 h-4" />
+                      <span>Save draft as lyric_draft artifact</span>
+                    </>
+                  )}
+                </button>
+
+                {!hasContent && (
+                  <p className="font-mono text-[10px] text-dim">
+                    Write at least one line before saving.
+                  </p>
+                )}
+
+                {saveError && (
+                  <div className="p-3 rounded-xl bg-[var(--accent-dim)] border border-[var(--accent-border)] font-mono text-[11px] text-accent-hover">
+                    {saveError}
+                  </div>
+                )}
+
+                {savedRef && (
+                  <div className="p-3 rounded-xl bg-accent/10 border border-accent/40 font-mono text-[11px] text-accent flex items-start gap-2">
+                    <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
+                    <span>
+                      Stored as artifact {savedRef.id} (version {savedRef.version}).
                     </span>
                   </div>
+                )}
 
-                  {/* Original vs Proposed */}
-                  <div className="space-y-2 border-l-2 border-[#f2542d]/60 pl-3 py-1">
-                    <div className="space-y-0.5">
-                      <span className="text-[9px] font-mono text-[#6d6183] uppercase block">Current:</span>
-                      <p className="font-serif text-xs text-[#a294b8] line-through">
-                        {sug.originalText}
-                      </p>
-                    </div>
-
-                    <div className="space-y-0.5">
-                      <span className="text-[9px] font-mono text-[#43c9a0] uppercase block">Proposed (Native):</span>
-                      <p className="font-serif text-base text-[#f5efe6] font-semibold leading-relaxed">
-                        {sug.suggestedText}
-                      </p>
-                      {showTransliteration && (
-                        <p className="font-mono text-xs text-[#ffd48a]/80">
-                          {sug.suggestedTransliteration}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Notes & Explanation */}
-                  <div className="bg-[#08060d] rounded-xl p-3 border border-[#241c33] space-y-1">
-                    <p className="text-xs font-serif text-[#a294b8] leading-relaxed">
-                      {sug.explanation}
+                <div className="pt-3 border-t border-line space-y-2">
+                  <span className="text-[10px] font-mono text-dim uppercase tracking-wider block">
+                    lyric_draft artifacts on this project
+                  </span>
+                  {draftsError ? (
+                    <p className="font-mono text-[11px] text-accent-hover">{draftsError}</p>
+                  ) : drafts === null ? (
+                    <p className="font-mono text-[11px] text-muted">Loading…</p>
+                  ) : drafts.length === 0 ? (
+                    <p className="font-serif text-[11px] text-dim">
+                      None yet. Saved drafts will be listed here.
                     </p>
-                    <div className="flex items-center justify-between text-[10px] font-mono text-[#ffd48a] pt-1">
-                      <span>Syllables: {sug.syllableCount}</span>
-                      <span>{sug.meterNote}</span>
-                    </div>
-                  </div>
-
-                  {/* Action Buttons */}
-                  <div className="flex items-center gap-2 pt-1">
-                    <button
-                      onClick={() => handleAcceptSuggestion(sug)}
-                      className="flex-1 py-2 rounded-xl bg-[#21a882] hover:bg-[#28c297] text-[#08060d] font-serif text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-md shadow-[#21a882]/20"
-                    >
-                      <Check className="w-4 h-4 stroke-[3]" />
-                      <span>Accept Line</span>
-                    </button>
-
-                    <button
-                      onClick={() => handleDismissSuggestion(sug.id)}
-                      className="px-3 py-2 rounded-xl bg-[#241c33] hover:bg-[#342847] text-[#a294b8] hover:text-[#f5efe6] text-xs font-serif transition-colors flex items-center gap-1"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                      <span>Dismiss</span>
-                    </button>
-                  </div>
+                  ) : (
+                    <ul className="space-y-1.5">
+                      {drafts.map((d) => (
+                        <li
+                          key={d.id}
+                          className="p-2.5 rounded-xl bg-bg border border-line font-mono text-[10px] text-muted flex items-center justify-between gap-2"
+                        >
+                          <span className="truncate">v{d.version} • {d.uri}</span>
+                          <span className="flex-shrink-0 text-dim">
+                            {formatTimestamp(d.created_at)}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <p className="font-serif text-[10px] text-dim">
+                    The gateway has no artifact-download route, so stored drafts can be listed here
+                    but not re-opened in the editor.
+                  </p>
                 </div>
-              ))
+              </>
             )}
           </div>
 
-          {/* Regional Cultural Resonance Note */}
-          <div className="p-5 glass rounded-3xl border border-[#342847] space-y-2">
-            <div className="flex items-center gap-2 text-xs font-serif text-[#ffd48a] font-semibold">
-              <Sparkles className="w-4 h-4 text-[#ffd48a]" />
-              <span>Dialect & Cultural Resonance Note</span>
+          <div className="glass rounded-3xl p-6 border border-line-strong bg-bg/90 space-y-3 opacity-90">
+            <div className="flex items-center justify-between border-b border-line pb-3">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-dim" />
+                <h3 className="font-serif text-base font-bold text-muted">
+                  Co-writer tools (unreachable)
+                </h3>
+              </div>
+              <span className="text-[10px] font-mono text-dim bg-surface border border-line-strong px-2 py-0.5 rounded-full">
+                No endpoint
+              </span>
             </div>
-            <p className="text-xs font-serif text-[#a294b8] leading-relaxed">
-              {preset.notes}
+
+            <ul className="space-y-2">
+              {[
+                ['draft_lyrics', 'Draft sections in a chosen language, script and dialect.'],
+                ['refine_section', 'Rewrite one section against a written instruction.'],
+                ['transliterate', 'Produce the ISO romanisation line automatically.'],
+                ['rhyme_suggest', 'Offer rhyme candidates for a given line.']
+              ].map(([tool, what]) => (
+                <li
+                  key={tool}
+                  className="p-3 rounded-xl bg-bg border border-line flex items-start gap-2.5"
+                >
+                  <span className="font-mono text-[11px] text-dim font-bold flex-shrink-0 line-through">
+                    {tool}
+                  </span>
+                  <span className="font-serif text-[11px] text-muted">{what}</span>
+                </li>
+              ))}
+            </ul>
+
+            <p className="font-serif text-[11px] text-dim leading-relaxed">
+              These are shown greyed out on purpose: the tools exist on the lyric_studio agent but
+              nothing routes to them from the browser, and a button that quietly returns canned text
+              would be worse than no button.
             </p>
           </div>
-
         </div>
-
       </div>
-
-      {/* Human Clearance Checkpoint Card */}
-      {track.lyricAnalysis && (
-        <div className="pt-4">
-          <HumanCheckpointCard
-            title="Lyric Copyright & Cultural Resonance Clearance"
-            recommendation={
-              track.lyricAnalysis.copyrightRiskFlag
-                ? "Potential lyric overlap detected in verse 2 with traditional folk catalog. Verify attribution before distribution."
-                : `Lyrics clear copyright risk. Syllabic regularity score is ${calculateMeterScore()}% in ${selectedLanguage} (${selectedDialect}).`
-            }
-            status={track.lyricAnalysis.checkpointStatus}
-            agentName="GHARANA Lyric & Cultural Agent"
-            onApprove={handleApproveCheckpoint}
-            onReject={handleRejectCheckpoint}
-            onInspectRawPayload={() =>
-              onInspectRaw('Lyric Agent Payload', track.rawAgentPayloads?.lyricAgent || track.lyricAnalysis)
-            }
-          />
-        </div>
-      )}
-
     </div>
   );
 };

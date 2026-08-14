@@ -51,7 +51,19 @@ export const SidebarNotificationFeed: React.FC<SidebarNotificationFeedProps> = (
   const [dismissedIds, setDismissedIds] = useState<string[]>([]);
   const [approvedIds, setApprovedIds] = useState<string[]>([]);
 
-  // Dynamically compute live notification feed from tracks & agent state
+  // THIS COMPONENT IS NOT MOUNTED. See the comment in Sidebar.tsx.
+  //
+  // The array below is demo content, despite what the old comment here claimed
+  // ("dynamically compute live notification feed" — it never did). Every item is
+  // a literal: the split percentage, the timestamps, the party name.
+  //
+  // One measurement literal has been removed rather than left in place: this
+  // entry used to read "True Peak -0.8 dBTP, -13.8 LUFS", two numbers that no
+  // DSP produced, which would have rendered inches from the real measured values
+  // in the player bar. Do not put numbers back into these strings. When this
+  // feed is rewired, derive each item from the run's stages — a stage in
+  // `awaiting_approval` is a pending approval and its output carries the
+  // figures — and let it render nothing when there is nothing measured.
   const rawNotifications: NotificationItem[] = [
     {
       id: 'notif-mix-qc',
@@ -59,7 +71,7 @@ export const SidebarNotificationFeed: React.FC<SidebarNotificationFeedProps> = (
       trackTitle: activeTrack.title,
       type: 'mix_qc',
       title: 'Mix QC Checkpoint Pending',
-      description: `True Peak -0.8 dBTP, -13.8 LUFS. Signature required before DSP release.`,
+      description: `Signature required before DSP release.`,
       status: approvedIds.includes('notif-mix-qc') ? 'approved' : 'pending',
       timestamp: 'Just now',
       targetTab: 'mix_qc'
@@ -162,23 +174,23 @@ export const SidebarNotificationFeed: React.FC<SidebarNotificationFeedProps> = (
     return (
       <div className="relative group">
         <button
-          className="w-full py-2.5 flex items-center justify-center text-[#a294b8] hover:text-[#ffd48a] relative"
+          className="w-full py-2.5 flex items-center justify-center text-muted hover:text-caution relative"
           title={`Notification Feed (${pendingCount} Pending)`}
         >
           <Bell className="w-4 h-4" />
           {pendingCount > 0 && (
-            <span className="absolute top-1 right-3 w-2 h-2 rounded-full bg-[#f2542d] animate-pulse" />
+            <span className="absolute top-1 right-3 w-2 h-2 rounded-full bg-accent animate-pulse" />
           )}
         </button>
 
         {/* Floating Tooltip Feed on Hover when collapsed */}
-        <div className="absolute left-full top-0 ml-3 w-72 bg-[#120e1b] border border-[#342847] rounded-2xl p-3 shadow-2xl opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-all z-50 space-y-2">
-          <div className="flex items-center justify-between pb-2 border-b border-[#241c33]">
-            <span className="font-serif text-xs font-bold text-[#f5efe6] flex items-center gap-1.5">
-              <Bell className="w-3.5 h-3.5 text-[#ffd48a]" />
+        <div className="absolute left-full top-0 ml-3 w-72 bg-panel border border-line-strong rounded-2xl p-3 shadow-2xl opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-all z-50 space-y-2">
+          <div className="flex items-center justify-between pb-2 border-b border-line">
+            <span className="font-serif text-xs font-bold text-accent-on flex items-center gap-1.5">
+              <Bell className="w-3.5 h-3.5 text-caution" />
               Live Status Feed
             </span>
-            <span className="px-1.5 py-0.5 rounded-full bg-[#f2542d]/20 text-[#f2542d] font-mono text-[9px] font-bold">
+            <span className="px-1.5 py-0.5 rounded-full bg-[var(--accent-dim)] text-accent font-mono text-[9px] font-bold">
               {pendingCount} Pending
             </span>
           </div>
@@ -188,13 +200,13 @@ export const SidebarNotificationFeed: React.FC<SidebarNotificationFeedProps> = (
               <div
                 key={item.id}
                 onClick={() => handleNavigate(item)}
-                className="p-2 rounded-xl bg-[#08060d] hover:bg-[#191324] border border-[#241c33] cursor-pointer text-left transition-colors"
+                className="p-2 rounded-xl bg-bg hover:bg-surface border border-line cursor-pointer text-left transition-colors"
               >
-                <div className="flex items-center justify-between text-[10px] font-mono text-[#ffd48a] mb-0.5">
+                <div className="flex items-center justify-between text-[10px] font-mono text-caution mb-0.5">
                   <span className="truncate">{item.title}</span>
-                  <span className="text-[8px] text-[#6d6183]">{item.timestamp}</span>
+                  <span className="text-[8px] text-dim">{item.timestamp}</span>
                 </div>
-                <p className="text-[10px] text-[#a294b8] line-clamp-2">{item.description}</p>
+                <p className="text-[10px] text-muted line-clamp-2">{item.description}</p>
               </div>
             ))}
           </div>
@@ -204,18 +216,18 @@ export const SidebarNotificationFeed: React.FC<SidebarNotificationFeedProps> = (
   }
 
   return (
-    <div className="p-3 border-t border-[#241c33] bg-[#090712] space-y-2.5">
+    <div className="p-3 border-t border-line bg-bg space-y-2.5">
       
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className="relative">
-            <Bell className="w-3.5 h-3.5 text-[#ffd48a]" />
+            <Bell className="w-3.5 h-3.5 text-caution" />
             {pendingCount > 0 && (
-              <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-[#f2542d] animate-ping" />
+              <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-accent animate-ping" />
             )}
           </div>
-          <span className="font-serif text-xs font-bold text-[#f5efe6]">
+          <span className="font-serif text-xs font-bold text-accent-on">
             Approval Feed
           </span>
         </div>
@@ -226,8 +238,8 @@ export const SidebarNotificationFeed: React.FC<SidebarNotificationFeedProps> = (
             onClick={() => setFilter('all')}
             className={`px-1.5 py-0.5 rounded-md transition-colors ${
               filter === 'all'
-                ? 'bg-[#ffd48a]/20 text-[#ffd48a] font-bold'
-                : 'text-[#6d6183] hover:text-[#a294b8]'
+                ? 'bg-caution/20 text-caution font-bold'
+                : 'text-dim hover:text-muted'
             }`}
           >
             All
@@ -236,22 +248,22 @@ export const SidebarNotificationFeed: React.FC<SidebarNotificationFeedProps> = (
             onClick={() => setFilter('pending')}
             className={`px-1.5 py-0.5 rounded-md transition-colors flex items-center gap-1 ${
               filter === 'pending'
-                ? 'bg-[#f2542d]/20 text-[#f2542d] font-bold'
-                : 'text-[#6d6183] hover:text-[#a294b8]'
+                ? 'bg-[var(--accent-dim)] text-accent font-bold'
+                : 'text-dim hover:text-muted'
             }`}
           >
             <span>Pending</span>
             {pendingCount > 0 && (
-              <span className="w-1.5 h-1.5 rounded-full bg-[#f2542d]" />
+              <span className="w-1.5 h-1.5 rounded-full bg-accent" />
             )}
           </button>
         </div>
       </div>
 
       {/* Notification Cards List */}
-      <div className="space-y-2 max-h-56 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-[#241c33]">
+      <div className="space-y-2 max-h-56 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-line">
         {filteredNotifications.length === 0 ? (
-          <div className="p-3 text-center rounded-xl bg-[#0e0a17] border border-[#241c33] text-[10px] font-mono text-[#6d6183]">
+          <div className="p-3 text-center rounded-xl bg-bg border border-line text-[10px] font-mono text-dim">
             No active status alerts
           </div>
         ) : (
@@ -266,10 +278,10 @@ export const SidebarNotificationFeed: React.FC<SidebarNotificationFeedProps> = (
                 onClick={() => handleNavigate(item)}
                 className={`p-2.5 rounded-xl border transition-all cursor-pointer group relative overflow-hidden ${
                   isPending
-                    ? 'bg-[#150f24] border-[#f2542d]/40 hover:border-[#f2542d] shadow-md'
+                    ? 'bg-surface border-[var(--accent-dim)] hover:border-accent shadow-md'
                     : isApproved
-                    ? 'bg-[#0a1210] border-[#43c9a0]/30 hover:border-[#43c9a0]'
-                    : 'bg-[#0f0b1a] border-[#241c33] hover:border-[#342847]'
+                    ? 'bg-bg border-accent/30 hover:border-accent'
+                    : 'bg-bg border-line hover:border-line-strong'
                 }`}
               >
                 <div className="flex items-start justify-between gap-1.5 mb-1">
@@ -277,32 +289,32 @@ export const SidebarNotificationFeed: React.FC<SidebarNotificationFeedProps> = (
                     <Icon
                       className={`w-3.5 h-3.5 flex-shrink-0 ${
                         isPending
-                          ? 'text-[#f2542d]'
+                          ? 'text-accent'
                           : isApproved
-                          ? 'text-[#43c9a0]'
-                          : 'text-[#ffd48a]'
+                          ? 'text-accent'
+                          : 'text-caution'
                       }`}
                     />
-                    <span className="font-sans font-bold text-[11px] text-[#f5efe6] truncate">
+                    <span className="font-sans font-bold text-[11px] text-ink truncate">
                       {item.title}
                     </span>
                   </div>
 
                   <button
                     onClick={(e) => handleDismiss(e, item.id)}
-                    className="text-[#6d6183] hover:text-[#f5efe6] transition-colors p-0.5 opacity-0 group-hover:opacity-100"
+                    className="text-dim hover:text-ink transition-colors p-0.5 opacity-0 group-hover:opacity-100"
                     title="Dismiss alert"
                   >
                     <X className="w-3 h-3" />
                   </button>
                 </div>
 
-                <p className="text-[10px] font-mono text-[#a294b8] leading-tight mb-2 line-clamp-2">
+                <p className="text-[10px] font-mono text-muted leading-tight mb-2 line-clamp-2">
                   {item.description}
                 </p>
 
-                <div className="flex items-center justify-between text-[9px] font-mono pt-1 border-t border-[#241c33]/60">
-                  <span className="text-[#6d6183] flex items-center gap-1">
+                <div className="flex items-center justify-between text-[9px] font-mono pt-1 border-t border-line/60">
+                  <span className="text-dim flex items-center gap-1">
                     <Clock className="w-2.5 h-2.5" />
                     {item.timestamp}
                   </span>
@@ -311,23 +323,23 @@ export const SidebarNotificationFeed: React.FC<SidebarNotificationFeedProps> = (
                     <div className="flex items-center gap-1">
                       <button
                         onClick={(e) => handleQuickApprove(e, item.id)}
-                        className="px-1.5 py-0.5 rounded bg-[#43c9a0]/20 hover:bg-[#43c9a0] text-[#43c9a0] hover:text-[#08060d] transition-all font-bold flex items-center gap-0.5"
+                        className="px-1.5 py-0.5 rounded bg-accent/20 hover:bg-accent text-accent hover:text-bg transition-all font-bold flex items-center gap-0.5"
                       >
                         <Check className="w-2.5 h-2.5" />
                         <span>Approve</span>
                       </button>
-                      <span className="text-[#f2542d] font-bold flex items-center gap-0.5">
+                      <span className="text-accent font-bold flex items-center gap-0.5">
                         Action
                         <ChevronRight className="w-2.5 h-2.5" />
                       </span>
                     </div>
                   ) : isApproved ? (
-                    <span className="text-[#43c9a0] font-bold flex items-center gap-1">
+                    <span className="text-accent font-bold flex items-center gap-1">
                       <CheckCircle2 className="w-3 h-3" />
                       Signed & Verified
                     </span>
                   ) : (
-                    <span className="text-[#ffd48a] flex items-center gap-1 group-hover:underline">
+                    <span className="text-caution flex items-center gap-1 group-hover:underline">
                       View Details
                       <ArrowRight className="w-2.5 h-2.5" />
                     </span>
@@ -343,7 +355,7 @@ export const SidebarNotificationFeed: React.FC<SidebarNotificationFeedProps> = (
       {onOpenMobileApproval && (
         <button
           onClick={onOpenMobileApproval}
-          className="w-full py-1.5 px-2.5 rounded-xl bg-[#25D366]/10 hover:bg-[#25D366]/20 border border-[#25D366]/30 text-[#25D366] font-mono text-[10px] font-bold transition-all flex items-center justify-between"
+          className="w-full py-1.5 px-2.5 rounded-xl bg-whatsapp/10 hover:bg-whatsapp/20 border border-whatsapp/30 text-whatsapp font-mono text-[10px] font-bold transition-all flex items-center justify-between"
         >
           <span>Send WhatsApp Mobile Nudge</span>
           <ChevronRight className="w-3 h-3" />

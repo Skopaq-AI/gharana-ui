@@ -1,35 +1,49 @@
 {
-  "name": "react-example",
+  "name": "gharana-console",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.4.0",
+  "description": "GHARANA artist console: the SPA plus the session proxy that fronts the gateway.",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
-    "start": "node dist/server.cjs",
-    "clean": "rm -rf dist server.cjs",
+    "build": "vite build && esbuild server.ts --bundle --platform=node --format=esm --packages=external --sourcemap --outfile=dist/server.mjs",
+    "start": "node dist/server.mjs",
+    "clean": "rm -rf dist server.mjs",
     "lint": "tsc --noEmit"
   },
+  "//dependencies": [
+    "Runtime only. The Dockerfile installs these with `npm ci --omit=dev`, so",
+    "anything listed here ships in the deployed image and anything below does",
+    "not. Exactly two packages survive to runtime: the esbuild bundle is built",
+    "with --packages=external and server.ts imports only express, dotenv and two",
+    "node builtins.",
+    "React, motion and lucide-react are NOT runtime dependencies despite being",
+    "the app: Vite inlines them into dist/assets, so shipping them again would",
+    "be a second copy nothing loads. vite, @vitejs/plugin-react and",
+    "@tailwindcss/vite were listed here and dragged the platform-specific",
+    "esbuild binary into the runtime image, where trivy correctly reported 15",
+    "Go-stdlib CVEs against a compiler that never runs in production."
+  ],
   "dependencies": {
-    "@google/genai": "^2.4.0",
-    "@tailwindcss/vite": "^4.1.14",
-    "@vitejs/plugin-react": "^5.0.4",
-    "lucide-react": "^0.546.0",
-    "react": "^19.0.1",
-    "react-dom": "^19.0.1",
-    "vite": "^6.2.3",
-    "express": "^4.21.2",
     "dotenv": "^17.2.3",
-    "motion": "^12.23.24"
+    "express": "^4.21.2"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.1.14",
+    "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "@vitejs/plugin-react": "^5.0.4",
     "autoprefixer": "^10.4.21",
     "esbuild": "^0.25.0",
+    "lucide-react": "^0.546.0",
+    "motion": "^12.23.24",
+    "react": "^19.0.1",
+    "react-dom": "^19.0.1",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
-    "vite": "^6.2.3",
-    "@types/express": "^4.17.21"
+    "vite": "^6.2.3"
   }
 }

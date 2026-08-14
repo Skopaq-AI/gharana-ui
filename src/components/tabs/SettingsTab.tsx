@@ -1,837 +1,368 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   Settings,
-  User,
-  Smartphone,
-  Sliders,
   ShieldCheck,
-  Globe,
-  Radio,
-  CheckCircle2,
-  Save,
-  Bell,
-  Lock,
-  Cpu,
-  Zap,
-  Key,
-  Volume2,
-  Building2,
-  Check,
+  Server,
+  KeyRound,
   RefreshCw,
-  Sparkles,
-  CreditCard,
-  Receipt,
-  DollarSign,
-  TrendingUp,
-  Bot,
-  Calendar,
-  Download,
-  AlertCircle,
-  Layers,
-  Activity,
-  ArrowUpRight,
-  PieChart,
-  Trash2,
-  Plus,
-  Clock,
-  ChevronRight
+  CheckCircle2,
+  AlertTriangle,
+  Users,
+  Smartphone,
+  Workflow,
+  Lock,
+  Info
 } from 'lucide-react';
-import { MOCK_AGENTS, AgentListing } from '../../data/mockAgents';
-import { PageHeader, SectionCard, SectionHeader, StatCard } from '../SectionPanel';
+import { PageHeader } from '../SectionPanel';
+import {
+  listArtists,
+  listProjects,
+  listTemplates,
+  type Artist,
+  type PipelineTemplate,
+  type Project
+} from '../../lib/api';
+import { describeError, formatTimestamp } from './SplitsTab';
+
+/**
+ * Settings.
+ *
+ * This screen shows configuration that can actually be read, and says plainly
+ * which settings the backend does not expose. It contains no controls that
+ * write nowhere.
+ *
+ * Removed from the generated version: a billing dashboard (projected monthly
+ * spend, a compute-credit meter, a card ending 4821, an itemised execution
+ * ledger), agent subscription toggles, a "preferred foundation model" picker,
+ * loudness/true-peak inputs, WhatsApp nudge switches, ISRC prefixes and DSP
+ * credentials showing "Connected". Every one of those was React state with no
+ * endpoint behind it: pressing Save moved a number on screen and nothing else,
+ * and the billing figures were invented outright.
+ */
+
+/** Response of the console server's own /api/health route (not the gateway). */
+interface ConsoleHealth {
+  status: string;
+  service: string;
+  gateway: string;
+  gatewayKeyConfigured: boolean;
+  timestamp: string;
+}
+
+type Probe<T> = { state: 'loading' } | { state: 'ok'; data: T } | { state: 'error'; message: string };
 
 interface SettingsTabProps {
+  /** Legacy props from the mock-data console. Unused: nothing here installs agents. */
   installedAgentIds?: string[];
   onInstallAgent?: (agentId: string) => void;
 }
 
-export const SettingsTab: React.FC<SettingsTabProps> = ({
-  installedAgentIds = ['agent-telugu-chandas', 'agent-mastering-qc'],
-  onInstallAgent
-}) => {
-  // Main Navigation Sub-Tab inside Settings
-  const [activeSettingsTab, setActiveSettingsTab] = useState<'preferences' | 'billing'>('billing');
+export const SettingsTab: React.FC<SettingsTabProps> = () => {
+  const [health, setHealth] = useState<Probe<ConsoleHealth>>({ state: 'loading' });
+  const [templates, setTemplates] = useState<Probe<PipelineTemplate[]>>({ state: 'loading' });
+  const [artists, setArtists] = useState<Probe<Artist[]>>({ state: 'loading' });
+  const [projects, setProjects] = useState<Probe<Project[]>>({ state: 'loading' });
 
-  // Studio & Artist Profile State
-  const [studioName, setStudioName] = useState('GHARANA Music & Audio Labs');
-  const [ipiCaeNumber, setIpiCaeNumber] = useState('IPI-009841235');
-  const [primaryLanguage, setPrimaryLanguage] = useState('Telugu');
-  const [currency, setCurrency] = useState<'INR' | 'USD'>('INR');
+  const runChecks = useCallback(() => {
+    setHealth({ state: 'loading' });
+    setTemplates({ state: 'loading' });
+    setArtists({ state: 'loading' });
+    setProjects({ state: 'loading' });
 
-  // WhatsApp & Mobile Nudges State
-  const [whatsAppNumber, setWhatsAppNumber] = useState('+91 98765 43210');
-  const [enableWhatsAppNudges, setEnableWhatsAppNudges] = useState(true);
-  const [lowBandwidthMode, setLowBandwidthMode] = useState(true);
+    // Same-origin call to the console's own Express route. The typed gateway
+    // client only speaks to /api/gw, and this endpoint is the console telling us
+    // which gateway it is configured against — deliberately not a gateway call.
+    fetch('/api/health', { cache: 'no-store' })
+      .then(async (resp) => {
+        if (!resp.ok) throw new Error(`console health returned ${resp.status}`);
+        return (await resp.json()) as ConsoleHealth;
+      })
+      .then((data) => setHealth({ state: 'ok', data }))
+      .catch((err) =>
+        setHealth({ state: 'error', message: err instanceof Error ? err.message : String(err) })
+      );
 
-  // Audio Ceilings & Mastering Standards
-  const [targetLufs, setTargetLufs] = useState(-14.0);
-  const [truePeakCeiling, setTruePeakCeiling] = useState(-1.0);
-  const [hardReleaseBlock, setHardReleaseBlock] = useState(true);
+    listTemplates()
+      .then((data) => setTemplates({ state: 'ok', data }))
+      .catch((err) => setTemplates({ state: 'error', message: describeError(err) }));
 
-  // AI Provenance & Data Privacy
-  const [zeroRetentionMode, setZeroRetentionMode] = useState(true);
-  const [preferredModel, setPreferredModel] = useState('Gemini 2.5 Flash');
-  const [autoRunVettedAgents, setAutoRunVettedAgents] = useState(true);
+    listArtists()
+      .then((data) => setArtists({ state: 'ok', data }))
+      .catch((err) => setArtists({ state: 'error', message: describeError(err) }));
 
-  // DSP & Copyright Metadata
-  const [isrcPrefix, setIsrcPrefix] = useState('IN-GH1-26');
-  const [appleMasteringId, setAppleMasteringId] = useState('ADM-GHARANA-884');
-  const [spotifyStatus, setSpotifyStatus] = useState<'connected' | 'disconnected'>('connected');
+    listProjects()
+      .then((data) => setProjects({ state: 'ok', data }))
+      .catch((err) => setProjects({ state: 'error', message: describeError(err) }));
+  }, []);
 
-  // Local state for active agent subscriptions
-  const [activeAgentIds, setActiveAgentIds] = useState<string[]>(installedAgentIds);
+  useEffect(() => {
+    runChecks();
+  }, [runChecks]);
 
-  // Save Toast State
-  const [savedToast, setSavedToast] = useState(false);
-  const [toastMessage, setToastMessage] = useState('Studio Preferences Saved!');
-
-  const handleSaveSettings = () => {
-    setToastMessage('Studio Preferences Saved!');
-    setSavedToast(true);
-    setTimeout(() => setSavedToast(false), 3000);
-  };
-
-  const handleToggleAgentSubscription = (agentId: string) => {
-    if (activeAgentIds.includes(agentId)) {
-      setActiveAgentIds((prev) => prev.filter((id) => id !== agentId));
-      setToastMessage('Agent subscription cancelled.');
-    } else {
-      setActiveAgentIds((prev) => [...prev, agentId]);
-      if (onInstallAgent) {
-        onInstallAgent(agentId);
-      }
-      setToastMessage('Agent subscribed & activated!');
-    }
-    setSavedToast(true);
-    setTimeout(() => setSavedToast(false), 3000);
-  };
-
-  // Calculations for Billing & Expenditure Summary
-  const baseProPlanInr = 2499; // Base GHARANA Pro Workspace Plan
-
-  const activeAgents = MOCK_AGENTS.filter((agent) => activeAgentIds.includes(agent.id));
-  
-  const totalAgentSubscriptionsInr = activeAgents
-    .filter((a) => a.pricingType === 'subscription')
-    .reduce((sum, a) => sum + a.priceAmountInr, 0);
-
-  // Simulated per-run executions for the current month
-  const mockRecentExecutions = [
-    { id: 'exec-1', track: 'Siri Siri Muvva', agentName: 'Punjabi Hip-Hop & Dhol 808 Knot Resolver', cost: 149, date: '2026-08-08 14:22', model: 'Per-Run' },
-    { id: 'exec-2', track: 'Anaganaga Raga', agentName: 'Sahitya-LLM Telugu Lyricist & Meter Specialist', cost: 0, date: '2026-08-07 19:05', model: 'Subscription Included' },
-    { id: 'exec-3', track: 'Anaganaga Raga', agentName: 'True Peak Guard & EBU R128 Master QC Agent', cost: 0, date: '2026-08-06 11:40', model: 'Subscription Included' },
-    { id: 'exec-4', track: 'Dhol Vibe 808', agentName: 'Kollywood Brass & String Counter-Melody Orchestrator', cost: 199, date: '2026-08-04 16:15', model: 'Per-Run' },
-    { id: 'exec-5', track: 'Siri Siri Muvva', agentName: 'Punjabi Hip-Hop & Dhol 808 Knot Resolver', cost: 149, date: '2026-08-02 09:30', model: 'Per-Run' }
-  ];
-
-  const totalPerRunExecutionsInr = mockRecentExecutions.reduce((sum, e) => sum + e.cost, 0);
-
-  const totalMonthlySpendInr = baseProPlanInr + totalAgentSubscriptionsInr + totalPerRunExecutionsInr;
-
-  const currencySymbol = currency === 'INR' ? '₹' : '$';
-  const convertAmount = (inr: number) => {
-    if (currency === 'USD') {
-      return (inr / 85).toFixed(2);
-    }
-    return inr.toLocaleString('en-IN');
-  };
+  const gatewayReachable = templates.state === 'ok';
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto pb-12">
-      {/* Standardized Page Header */}
       <PageHeader
         icon={Settings}
-        title="Studio Settings & Usage Billing"
-        description="Configure label metadata defaults, WhatsApp nudge endpoints, and AI agent usage."
-        badge="Workspace Admin"
+        title="Console Configuration"
+        description="What this console is talking to, and what the backend does not let it configure."
+        badge="Read-only"
         action={
           <button
-            onClick={handleSaveSettings}
-            className="px-4 py-2.5 rounded-xl bg-[#f2542d] hover:bg-[#ff7a4d] text-white font-mono text-xs font-bold transition-all shadow-md flex items-center gap-2"
+            onClick={runChecks}
+            className="px-4 py-2.5 rounded-xl bg-surface hover:bg-line text-caution border border-line-strong font-mono text-xs font-bold transition-all flex items-center gap-2"
           >
-            <Save className="w-4 h-4 text-white" />
-            <span>Save Settings</span>
+            <RefreshCw
+              className={`w-4 h-4 ${health.state === 'loading' ? 'animate-spin text-info' : ''}`}
+            />
+            <span>Re-run checks</span>
           </button>
         }
-      >
-        {/* Sub-Tabs Switcher */}
-        <div className="flex items-center gap-2 font-mono text-xs">
-          <button
-            onClick={() => setActiveSettingsTab('billing')}
-            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl transition-all ${
-              activeSettingsTab === 'billing'
-                ? 'bg-[#191324] text-[#ffd48a] border border-[#ffd48a]/30 font-bold shadow-md'
-                : 'text-[#a294b8] hover:text-[#f5efe6] hover:bg-[#120e1b]'
-            }`}
-          >
-            <Receipt className="w-3.5 h-3.5 text-[#ffd48a]" />
-            <span>Usage, Billing & Agent Subscriptions</span>
-          </button>
+      />
 
-          <button
-            onClick={() => setActiveSettingsTab('preferences')}
-            className={`flex items-center gap-2 px-3.5 py-2 rounded-xl transition-all ${
-              activeSettingsTab === 'preferences'
-                ? 'bg-[#191324] text-[#ffd48a] border border-[#ffd48a]/30 font-bold shadow-md'
-                : 'text-[#a294b8] hover:text-[#f5efe6] hover:bg-[#120e1b]'
-            }`}
-          >
-            <Sliders className="w-3.5 h-3.5 text-[#ffd48a]" />
-            <span>Studio Preferences & Metadata Defaults</span>
-          </button>
+      {/* 1. WIRING */}
+      <div className="p-6 rounded-3xl bg-panel border border-line shadow-lg space-y-5">
+        <div className="flex items-center gap-2.5 pb-3 border-b border-line">
+          <Server className="w-5 h-5 text-caution" />
+          <h3 className="font-serif text-lg font-bold text-ink">Console → Gateway wiring</h3>
         </div>
-      </PageHeader>
 
-      {/* VIEW 1: USAGE & BILLING PANEL */}
-      {activeSettingsTab === 'billing' && (
-        <div className="space-y-8 animate-fadeIn">
-          
-          {/* 1. MONTHLY EXPENDITURE SUMMARY DASHBOARD */}
-          <div className="p-6 md:p-8 rounded-3xl bg-[#120e1b] border border-[#241c33] shadow-xl space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[#241c33]">
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 rounded-2xl bg-[#ffd48a]/10 border border-[#ffd48a]/30 text-[#ffd48a]">
-                  <CreditCard className="w-6 h-6" />
-                </div>
-                <div>
-                  <h2 className="font-serif text-xl font-bold text-[#f5efe6]">
-                    Workspace Usage & Expenditure Summary
-                  </h2>
-                  <p className="font-mono text-xs text-[#a294b8]">
-                    Current Billing Cycle: August 1, 2026 – August 31, 2026 • Pro Workspace Tier
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2 bg-[#08060d] border border-[#342847] p-1.5 rounded-xl font-mono text-xs">
-                <span className="text-[#a294b8] px-2">Currency:</span>
-                <button
-                  type="button"
-                  onClick={() => setCurrency('INR')}
-                  className={`px-3 py-1 rounded-lg transition-all ${
-                    currency === 'INR' ? 'bg-[#f2542d] text-white font-bold' : 'text-[#a294b8]'
-                  }`}
-                >
-                  INR (₹)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCurrency('USD')}
-                  className={`px-3 py-1 rounded-lg transition-all ${
-                    currency === 'USD' ? 'bg-[#f2542d] text-white font-bold' : 'text-[#a294b8]'
-                  }`}
-                >
-                  USD ($)
-                </button>
-              </div>
+        {health.state === 'loading' ? (
+          <div className="flex items-center gap-2 font-mono text-xs text-muted">
+            <RefreshCw className="w-3.5 h-3.5 animate-spin text-info" />
+            <span>Reading /api/health…</span>
+          </div>
+        ) : health.state === 'error' ? (
+          <div className="p-4 rounded-2xl bg-[var(--accent-dim)] border border-[var(--accent-border)] space-y-1">
+            <div className="flex items-center gap-2 font-serif text-sm font-bold text-accent-hover">
+              <AlertTriangle className="w-4 h-4" />
+              <span>The console server did not answer its own health check</span>
+            </div>
+            <p className="font-mono text-[11px] text-accent-hover">{health.message}</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 font-mono text-xs">
+            <div className="p-4 rounded-2xl bg-bg border border-line space-y-1">
+              <span className="text-muted uppercase tracking-wider text-[10px] block">
+                Gateway base URL
+              </span>
+              <span className="text-ink font-bold break-all">{health.data.gateway}</span>
+              <span className="text-[10px] text-dim block">
+                Set by GATEWAY_URL on the console server. Browser requests go to /api/gw and are
+                proxied there.
+              </span>
             </div>
 
-            {/* Metrics Breakdown Cards */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              
-              {/* Card 1: Total Monthly Bill */}
-              <div className="p-5 rounded-2xl bg-[#08060d] border border-[#ffd48a]/30 space-y-2 relative overflow-hidden">
-                <div className="flex items-center justify-between text-[#a294b8] font-mono text-xs">
-                  <span>Projected Month Total</span>
-                  <Receipt className="w-4 h-4 text-[#ffd48a]" />
-                </div>
-                <div className="font-serif text-2xl md:text-3xl font-bold text-[#ffd48a]">
-                  {currencySymbol}{convertAmount(totalMonthlySpendInr)}
-                </div>
-                <p className="font-mono text-[10px] text-[#6d6183]">
-                  Includes Base Plan + Active Agents + Per-Run
-                </p>
-              </div>
-
-              {/* Card 2: Base Pro Plan */}
-              <div className="p-5 rounded-2xl bg-[#08060d] border border-[#241c33] space-y-2">
-                <div className="flex items-center justify-between text-[#a294b8] font-mono text-xs">
-                  <span>GHARANA Pro Plan</span>
-                  <Layers className="w-4 h-4 text-[#43c9a0]" />
-                </div>
-                <div className="font-serif text-2xl font-bold text-[#f5efe6]">
-                  {currencySymbol}{convertAmount(baseProPlanInr)}
-                  <span className="text-xs font-mono font-normal text-[#a294b8]">/mo</span>
-                </div>
-                <span className="inline-block px-2 py-0.5 rounded-full bg-[#43c9a0]/20 text-[#43c9a0] font-mono text-[9px] font-bold">
-                  Active Subscription
-                </span>
-              </div>
-
-              {/* Card 3: Agent Subscriptions Total */}
-              <div className="p-5 rounded-2xl bg-[#08060d] border border-[#241c33] space-y-2">
-                <div className="flex items-center justify-between text-[#a294b8] font-mono text-xs">
-                  <span>Agent Subscriptions</span>
-                  <Bot className="w-4 h-4 text-[#a56bd6]" />
-                </div>
-                <div className="font-serif text-2xl font-bold text-[#f5efe6]">
-                  {currencySymbol}{convertAmount(totalAgentSubscriptionsInr)}
-                  <span className="text-xs font-mono font-normal text-[#a294b8]">/mo</span>
-                </div>
-                <span className="font-mono text-[10px] text-[#a294b8] block">
-                  {activeAgents.filter((a) => a.pricingType === 'subscription').length} Active Subscribed Agents
-                </span>
-              </div>
-
-              {/* Card 4: Per-Run Executions Total */}
-              <div className="p-5 rounded-2xl bg-[#08060d] border border-[#241c33] space-y-2">
-                <div className="flex items-center justify-between text-[#a294b8] font-mono text-xs">
-                  <span>Per-Run Executions</span>
-                  <Zap className="w-4 h-4 text-[#f2542d]" />
-                </div>
-                <div className="font-serif text-2xl font-bold text-[#f5efe6]">
-                  {currencySymbol}{convertAmount(totalPerRunExecutionsInr)}
-                </div>
-                <span className="font-mono text-[10px] text-[#a294b8] block">
-                  {mockRecentExecutions.filter((e) => e.cost > 0).length} Paid Agent Runs this cycle
-                </span>
-              </div>
-
-            </div>
-
-            {/* Quota & Compute Meter */}
-            <div className="p-4 rounded-2xl bg-[#08060d] border border-[#241c33] space-y-3 font-mono text-xs">
-              <div className="flex items-center justify-between text-[#a294b8]">
-                <span className="flex items-center gap-2 text-[#f5efe6] font-bold">
-                  <Activity className="w-4 h-4 text-[#ffd48a]" />
-                  Gemini 2.5 Flash Compute & Meter Credits
-                </span>
-                <span className="text-[#ffd48a] font-bold">14,280 / 20,000 Credits Used (71%)</span>
-              </div>
-
-              <div className="w-full h-3 bg-[#120e1b] rounded-full overflow-hidden border border-[#241c33] relative">
-                <div
-                  className="h-full bg-gradient-to-r from-[#f2542d] via-[#ffd48a] to-[#43c9a0] rounded-full transition-all duration-500"
-                  style={{ width: '71%' }}
-                />
-              </div>
-
-              <div className="flex items-center justify-between text-[10px] text-[#6d6183]">
-                <span>Resets on Sept 1, 2026 • High-throughput ephemeral processing</span>
-                <span className="text-[#43c9a0] font-bold">Zero-Retention Mode Active</span>
-              </div>
-            </div>
-
-            {/* Payment Details & Invoicing */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-4 border-t border-[#241c33] font-mono text-xs">
-              <div className="flex items-center gap-3">
-                <div className="px-3 py-2 rounded-xl bg-[#191324] border border-[#342847] text-[#f5efe6] flex items-center gap-2">
-                  <CreditCard className="w-4 h-4 text-[#25D366]" />
-                  <span>Razorpay UPI / Visa •••• 4821</span>
-                </div>
-                <span className="text-[#6d6183]">Auto-renew enabled</span>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => handleSaveSettings()}
-                className="px-4 py-2 rounded-xl bg-[#191324] hover:bg-[#241c33] border border-[#342847] text-[#ffd48a] font-bold transition-all flex items-center gap-2"
+            <div
+              className={`p-4 rounded-2xl bg-bg border space-y-1 ${
+                health.data.gatewayKeyConfigured ? 'border-accent/40' : 'border-[var(--accent-border)]'
+              }`}
+            >
+              <span className="text-muted uppercase tracking-wider text-[10px] flex items-center gap-1.5">
+                <KeyRound className="w-3 h-3" />
+                Gateway API key
+              </span>
+              <span
+                className={`font-bold ${
+                  health.data.gatewayKeyConfigured ? 'text-accent' : 'text-accent-hover'
+                }`}
               >
-                <Download className="w-3.5 h-3.5" />
-                <span>Download August 2026 Statement (PDF)</span>
-              </button>
-            </div>
-          </div>
-
-          {/* 2. ACTIVE AGENT SUBSCRIPTIONS LIST */}
-          <div className="p-6 rounded-3xl bg-[#120e1b] border border-[#241c33] shadow-lg space-y-5">
-            <div className="flex items-center justify-between pb-3 border-b border-[#241c33]">
-              <div className="flex items-center gap-2.5">
-                <Bot className="w-5 h-5 text-[#ffd48a]" />
-                <h3 className="font-serif text-lg font-bold text-[#f5efe6]">
-                  Active Agent Subscriptions & Licenses ({activeAgents.length})
-                </h3>
-              </div>
-              <span className="text-xs font-mono text-[#a294b8]">
-                Installed across GHARANA Workspace
+                {health.data.gatewayKeyConfigured
+                  ? 'Configured server-side'
+                  : 'NOT CONFIGURED — calls will be unauthenticated'}
+              </span>
+              <span className="text-[10px] text-dim block">
+                Held as GHARANA_API_KEY in the Node process and attached by the proxy. The key never
+                reaches the browser, and this flag is the only thing the browser learns about it.
               </span>
             </div>
 
-            <div className="space-y-3">
-              {activeAgents.length === 0 ? (
-                <div className="p-6 text-center rounded-2xl bg-[#08060d] border border-[#241c33] font-mono text-xs text-[#a294b8]">
-                  No active marketplace agent subscriptions. Browse the Marketplace below to activate specialized agents.
-                </div>
+            <div className="p-4 rounded-2xl bg-bg border border-line space-y-1">
+              <span className="text-muted uppercase tracking-wider text-[10px] block">
+                Console service
+              </span>
+              <span className="text-ink">
+                {health.data.service} • {health.data.status}
+              </span>
+              <span className="text-[10px] text-dim block">
+                Checked {formatTimestamp(health.data.timestamp)}
+              </span>
+            </div>
+
+            <div
+              className={`p-4 rounded-2xl bg-bg border space-y-1 ${
+                gatewayReachable ? 'border-accent/40' : 'border-[var(--accent-border)]'
+              }`}
+            >
+              <span className="text-muted uppercase tracking-wider text-[10px] block">
+                Authenticated gateway call
+              </span>
+              {templates.state === 'loading' ? (
+                <span className="text-muted flex items-center gap-2">
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin text-info" />
+                  Probing GET /templates…
+                </span>
+              ) : templates.state === 'ok' ? (
+                <span className="text-accent font-bold flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4" />
+                  OK — {templates.data.length} templates returned
+                </span>
               ) : (
-                activeAgents.map((agent) => (
-                  <div
-                    key={agent.id}
-                    className="p-4 rounded-2xl bg-[#08060d] border border-[#241c33] hover:border-[#342847] transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4 font-mono text-xs"
-                  >
-                    <div className="space-y-1 max-w-xl">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-bold text-[#f5efe6] font-sans text-sm">
-                          {agent.name}
-                        </span>
-                        <span className="px-2 py-0.5 rounded-full bg-[#f2542d]/20 text-[#f2542d] text-[10px] font-bold border border-[#f2542d]/30">
-                          {agent.authorBadge}
-                        </span>
-                        <span className="px-2 py-0.5 rounded-full bg-[#ffd48a]/20 text-[#ffd48a] text-[10px] font-bold">
-                          {agent.category}
-                        </span>
-                      </div>
-
-                      <p className="text-[11px] text-[#a294b8]">
-                        {agent.description}
-                      </p>
-
-                      <div className="flex items-center gap-4 text-[10px] text-[#6d6183] pt-1">
-                        <span>Author: {agent.author}</span>
-                        <span>•</span>
-                        <span className="text-[#43c9a0]">
-                          {agent.provenance.trainingDataPosture.split(':')[0]}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="flex sm:flex-col items-end justify-between sm:justify-center gap-2 flex-shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-[#241c33]">
-                      <div className="text-right">
-                        <span className="font-serif font-bold text-sm text-[#ffd48a] block">
-                          {currencySymbol}{convertAmount(agent.priceAmountInr)}
-                          <span className="text-[10px] font-normal text-[#a294b8]">
-                            {agent.pricingType === 'subscription' ? ' / mo' : ' / run'}
-                          </span>
-                        </span>
-                        <span className="text-[9px] text-[#6d6183] block">
-                          {agent.pricingType === 'subscription' ? 'Renews Sept 1, 2026' : 'Pay As You Go'}
-                        </span>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => handleToggleAgentSubscription(agent.id)}
-                        className="px-3 py-1.5 rounded-xl bg-[#f2542d]/10 hover:bg-[#f2542d]/20 text-[#f2542d] border border-[#f2542d]/30 font-bold text-[11px] transition-all flex items-center gap-1"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                        <span>Cancel Subscription</span>
-                      </button>
-                    </div>
-                  </div>
-                ))
+                <span className="text-accent-hover font-bold break-words">{templates.message}</span>
               )}
-            </div>
-          </div>
-
-          {/* 3. MARKETPLACE AGENTS PER-RUN & SUBSCRIPTION RATE CARD */}
-          <div className="p-6 rounded-3xl bg-[#120e1b] border border-[#241c33] shadow-lg space-y-5">
-            <div className="flex items-center justify-between pb-3 border-b border-[#241c33]">
-              <div className="flex items-center gap-2.5">
-                <Sparkles className="w-5 h-5 text-[#f2542d]" />
-                <h3 className="font-serif text-lg font-bold text-[#f5efe6]">
-                  Marketplace Agent Rate Cards & Pricing Directory
-                </h3>
-              </div>
-              <span className="text-xs font-mono text-[#ffd48a]">
-                Transparent Pay-As-You-Go & Flat Subscriptions
+              <span className="text-[10px] text-dim block">
+                A real round trip through the proxy: it exercises the key, the network path and the
+                orchestrator behind the gateway.
               </span>
             </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse font-mono text-xs">
-                <thead>
-                  <tr className="border-b border-[#241c33] text-[#a294b8] uppercase text-[10px] tracking-wider">
-                    <th className="py-3 px-3">Agent Name & Category</th>
-                    <th className="py-3 px-3">Billing Model</th>
-                    <th className="py-3 px-3">Rate / Unit Cost</th>
-                    <th className="py-3 px-3">Privacy Guarantee</th>
-                    <th className="py-3 px-3 text-right">Status / Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#241c33]">
-                  {MOCK_AGENTS.map((agent) => {
-                    const isSubscribed = activeAgentIds.includes(agent.id);
-
-                    return (
-                      <tr key={agent.id} className="hover:bg-[#08060d]/50 transition-colors">
-                        <td className="py-3.5 px-3">
-                          <div className="font-bold text-[#f5efe6] font-sans text-xs">
-                            {agent.name}
-                          </div>
-                          <div className="text-[10px] text-[#a294b8]">{agent.category} • {agent.author}</div>
-                        </td>
-
-                        <td className="py-3.5 px-3">
-                          <span
-                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                              agent.pricingType === 'subscription'
-                                ? 'bg-[#ffd48a]/20 text-[#ffd48a]'
-                                : 'bg-[#f2542d]/20 text-[#f2542d]'
-                            }`}
-                          >
-                            {agent.pricingType === 'subscription' ? 'Monthly Subscription' : 'Per-Run Token'}
-                          </span>
-                        </td>
-
-                        <td className="py-3.5 px-3 font-bold text-[#f5efe6]">
-                          {currencySymbol}{convertAmount(agent.priceAmountInr)}
-                          <span className="text-[10px] font-normal text-[#6d6183]">
-                            {agent.pricingType === 'subscription' ? ' / mo' : ' / run'}
-                          </span>
-                        </td>
-
-                        <td className="py-3.5 px-3 text-[10px] text-[#43c9a0]">
-                          Zero-Retention RAM Processing
-                        </td>
-
-                        <td className="py-3.5 px-3 text-right">
-                          <button
-                            type="button"
-                            onClick={() => handleToggleAgentSubscription(agent.id)}
-                            className={`px-3 py-1.5 rounded-xl font-bold text-[11px] transition-all ${
-                              isSubscribed
-                                ? 'bg-[#43c9a0]/20 text-[#43c9a0] border border-[#43c9a0]/40'
-                                : 'bg-[#f2542d] hover:bg-[#ff7a4d] text-white shadow-md'
-                            }`}
-                          >
-                            {isSubscribed ? 'Subscribed ✓' : 'Subscribe / Add'}
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
           </div>
+        )}
+      </div>
 
-          {/* 4. ITEMIZED RECENT EXECUTION LEDGER */}
-          <div className="p-6 rounded-3xl bg-[#120e1b] border border-[#241c33] shadow-lg space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-[#241c33]">
-              <div className="flex items-center gap-2.5">
-                <Clock className="w-5 h-5 text-[#a294b8]" />
-                <h3 className="font-serif text-lg font-bold text-[#f5efe6]">
-                  Recent Agent Execution Audit Ledger
-                </h3>
+      {/* 2. PIPELINE TEMPLATES */}
+      <div className="p-6 rounded-3xl bg-panel border border-line shadow-lg space-y-4">
+        <div className="flex items-center justify-between pb-3 border-b border-line">
+          <div className="flex items-center gap-2.5">
+            <Workflow className="w-5 h-5 text-accent" />
+            <h3 className="font-serif text-lg font-bold text-ink">
+              Pipeline templates available to this workspace
+            </h3>
+          </div>
+          <span className="font-mono text-[11px] text-dim">Registered by the orchestrator</span>
+        </div>
+
+        {templates.state === 'loading' ? (
+          <p className="font-mono text-xs text-muted">Loading…</p>
+        ) : templates.state === 'error' ? (
+          <p className="font-mono text-[11px] text-accent-hover">{templates.message}</p>
+        ) : templates.data.length === 0 ? (
+          <p className="font-serif text-xs text-muted">
+            No templates are registered, so no run can be started.
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 font-mono text-xs">
+            {templates.data.map((t) => (
+              <div key={t.name} className="p-4 rounded-2xl bg-bg border border-line space-y-1">
+                <span className="text-caution font-bold block">{t.name}</span>
+                <span className="text-[10px] text-dim block">
+                  {t.stages.length} stages •{' '}
+                  {t.stages.filter((s) => s.checkpoint).length} human checkpoints
+                </span>
+                <span className="text-[10px] text-muted block break-words">
+                  {t.stages.map((s) => s.name).join(' → ')}
+                </span>
               </div>
-              <span className="text-xs font-mono text-[#6d6183]">
-                Itemized Run History (August 2026)
-              </span>
-            </div>
+            ))}
+          </div>
+        )}
+      </div>
 
-            <div className="space-y-2 font-mono text-xs">
-              {mockRecentExecutions.map((exec) => (
-                <div
-                  key={exec.id}
-                  className="p-3 rounded-xl bg-[#08060d] border border-[#241c33] flex flex-col sm:flex-row sm:items-center justify-between gap-2"
-                >
-                  <div className="space-y-0.5">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[#ffd48a] font-bold">{exec.track}</span>
-                      <span className="text-[#6d6183]">•</span>
-                      <span className="text-[#f5efe6]">{exec.agentName}</span>
-                    </div>
-                    <div className="text-[10px] text-[#6d6183]">
-                      Timestamp: {exec.date} • Model: {exec.model}
-                    </div>
-                  </div>
+      {/* 3. WORKSPACE RECORDS */}
+      <div className="p-6 rounded-3xl bg-panel border border-line shadow-lg space-y-4">
+        <div className="flex items-center justify-between pb-3 border-b border-line">
+          <div className="flex items-center gap-2.5">
+            <Users className="w-5 h-5 text-info" />
+            <h3 className="font-serif text-lg font-bold text-ink">Artists on record</h3>
+          </div>
+          <span className="font-mono text-[11px] text-dim">
+            {projects.state === 'ok' ? `${projects.data.length} projects` : 'projects: —'}
+          </span>
+        </div>
 
-                  <div className="text-right flex-shrink-0">
-                    <span className="font-bold text-[#f5efe6]">
-                      {exec.cost === 0 ? 'Included ($0)' : `${currencySymbol}${convertAmount(exec.cost)}`}
+        <p className="font-serif text-xs text-muted">
+          Artist language and WhatsApp number live on the artist record in the backend. The gateway
+          can create artists but exposes no update route, so these are read-only here — and no
+          WhatsApp nudge is sent by this console today.
+        </p>
+
+        {artists.state === 'loading' ? (
+          <p className="font-mono text-xs text-muted">Loading artists…</p>
+        ) : artists.state === 'error' ? (
+          <p className="font-mono text-[11px] text-accent-hover">{artists.message}</p>
+        ) : artists.data.length === 0 ? (
+          <p className="font-serif text-xs text-dim">
+            No artists exist yet. Projects hang off an artist, so this is the first record to create.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse font-mono text-xs min-w-[480px]">
+              <thead>
+                <tr className="border-b border-line text-muted uppercase text-[10px] tracking-wider">
+                  <th className="py-2.5 px-3">Artist</th>
+                  <th className="py-2.5 px-3">Language</th>
+                  <th className="py-2.5 px-3">
+                    <span className="flex items-center gap-1">
+                      <Smartphone className="w-3 h-3" />
+                      WhatsApp
                     </span>
-                  </div>
-                </div>
-              ))}
-            </div>
+                  </th>
+                  <th className="py-2.5 px-3">Created</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {artists.data.map((artist) => (
+                  <tr key={artist.id}>
+                    <td className="py-2.5 px-3 text-ink">{artist.name}</td>
+                    <td className="py-2.5 px-3 text-muted">{artist.language ?? '—'}</td>
+                    <td className="py-2.5 px-3 text-muted">
+                      {artist.whatsapp ?? (
+                        <span className="text-dim italic">none on record</span>
+                      )}
+                    </td>
+                    <td className="py-2.5 px-3 text-dim">
+                      {formatTimestamp(artist.created_at)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
+        )}
+      </div>
 
+      {/* 4. WHAT IS NOT CONFIGURABLE */}
+      <div className="p-6 rounded-3xl bg-bg/80 border border-dashed border-line-strong space-y-4">
+        <div className="flex items-center gap-2.5 pb-3 border-b border-line">
+          <Lock className="w-5 h-5 text-dim" />
+          <h3 className="font-serif text-lg font-bold text-muted">
+            Not configurable from the console
+          </h3>
         </div>
-      )}
 
-      {/* VIEW 2: STUDIO PREFERENCES (ORIGINAL SETTINGS) */}
-      {activeSettingsTab === 'preferences' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-fadeIn">
-          
-          {/* 1. STUDIO PROFILE & BRANDING */}
-          <div className="p-6 rounded-3xl bg-[#120e1b] border border-[#241c33] space-y-5 shadow-lg">
-            <div className="flex items-center gap-2.5 pb-3 border-b border-[#241c33]">
-              <Building2 className="w-5 h-5 text-[#ffd48a]" />
-              <h3 className="font-serif text-lg font-bold text-[#f5efe6]">Studio & Label Profile</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {[
+            {
+              icon: <ShieldCheck className="w-3.5 h-3.5" />,
+              title: 'Loudness and true-peak thresholds',
+              body: 'Enforced by the production_qc and mastering agents server-side. The gateway exposes no settings route, so no number typed here could reach them.'
+            },
+            {
+              icon: <Info className="w-3.5 h-3.5" />,
+              title: 'Model routing',
+              body: 'Which model answers which agent call is decided by the server-side router. The console holds no model preference and no provider key.'
+            },
+            {
+              icon: <Smartphone className="w-3.5 h-3.5" />,
+              title: 'WhatsApp approval nudges',
+              body: 'Checkpoint approvals happen through the gateway’s approve/redo routes. There is no notification endpoint, so nothing here can turn nudges on or off.'
+            },
+            {
+              icon: <KeyRound className="w-3.5 h-3.5" />,
+              title: 'DSP credentials and ISRC prefixes',
+              body: 'No distribution integration exists. ISRC and UPC appear on release metadata only when the release stage returns them; the console never mints one.'
+            }
+          ].map((item) => (
+            <div key={item.title} className="p-4 rounded-2xl bg-bg border border-line space-y-1">
+              <span className="font-mono text-[10px] uppercase tracking-wider text-dim flex items-center gap-1.5">
+                {item.icon}
+                {item.title}
+              </span>
+              <p className="font-serif text-[11px] text-muted leading-relaxed">{item.body}</p>
             </div>
-
-            <div className="space-y-4 font-mono text-xs">
-              <div className="space-y-1.5">
-                <label className="text-[#a294b8] uppercase tracking-wider block">Studio / Label Name</label>
-                <input
-                  type="text"
-                  value={studioName}
-                  onChange={(e) => setStudioName(e.target.value)}
-                  className="w-full bg-[#08060d] border border-[#342847] rounded-xl px-3.5 py-2.5 text-[#f5efe6] focus:outline-none focus:border-[#ffd48a]"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <label className="text-[#a294b8] uppercase tracking-wider block">Primary IPI / CAE No.</label>
-                  <input
-                    type="text"
-                    value={ipiCaeNumber}
-                    onChange={(e) => setIpiCaeNumber(e.target.value)}
-                    className="w-full bg-[#08060d] border border-[#342847] rounded-xl px-3.5 py-2.5 text-[#f5efe6] focus:outline-none focus:border-[#ffd48a]"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-[#a294b8] uppercase tracking-wider block">Default Language</label>
-                  <select
-                    value={primaryLanguage}
-                    onChange={(e) => setPrimaryLanguage(e.target.value)}
-                    className="w-full bg-[#08060d] border border-[#342847] text-[#ffd48a] rounded-xl px-3.5 py-2.5 focus:outline-none"
-                  >
-                    <option value="Telugu">Telugu</option>
-                    <option value="Punjabi">Punjabi</option>
-                    <option value="Tamil">Tamil</option>
-                    <option value="Hindi">Hindi</option>
-                    <option value="Malayalam">Malayalam</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-[#a294b8] uppercase tracking-wider block">Base Royalty Payout Currency</label>
-                <div className="flex gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setCurrency('INR')}
-                    className={`flex-1 py-2.5 rounded-xl border text-center transition-all ${
-                      currency === 'INR'
-                        ? 'bg-[#f2542d]/20 border-[#f2542d] text-[#f2542d] font-bold'
-                        : 'bg-[#08060d] border border-[#241c33] text-[#a294b8]'
-                    }`}
-                  >
-                    INR (₹ Indian Rupee)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setCurrency('USD')}
-                    className={`flex-1 py-2.5 rounded-xl border text-center transition-all ${
-                      currency === 'USD'
-                        ? 'bg-[#f2542d]/20 border-[#f2542d] text-[#f2542d] font-bold'
-                        : 'bg-[#08060d] border border-[#241c33] text-[#a294b8]'
-                    }`}
-                  >
-                    USD ($ US Dollar)
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* 2. WHATSAPP & PHONE-FIRST NOTIFICATION ENDPOINTS */}
-          <div className="p-6 rounded-3xl bg-[#120e1b] border border-[#241c33] space-y-5 shadow-lg">
-            <div className="flex items-center gap-2.5 pb-3 border-b border-[#241c33]">
-              <Smartphone className="w-5 h-5 text-[#25D366]" />
-              <h3 className="font-serif text-lg font-bold text-[#f5efe6]">WhatsApp Mobile Approval Endpoint</h3>
-            </div>
-
-            <div className="space-y-4 font-mono text-xs">
-              <div className="space-y-1.5">
-                <label className="text-[#a294b8] uppercase tracking-wider block">Artist WhatsApp Endpoint Phone Number</label>
-                <input
-                  type="text"
-                  value={whatsAppNumber}
-                  onChange={(e) => setWhatsAppNumber(e.target.value)}
-                  placeholder="+91 98765 43210"
-                  className="w-full bg-[#08060d] border border-[#342847] text-[#25D366] font-bold rounded-xl px-3.5 py-2.5 focus:outline-none focus:border-[#25D366]"
-                />
-              </div>
-
-              <div className="p-3.5 rounded-2xl bg-[#08060d] border border-[#25D366]/30 space-y-3">
-                <label className="flex items-center justify-between cursor-pointer">
-                  <div>
-                    <span className="text-[#f5efe6] font-bold block">Instant Human-Checkpoint Nudges</span>
-                    <span className="text-[10px] text-[#6d6183] block">Send automated WhatsApp deep-links when Mix QC or Split approvals trigger</span>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={enableWhatsAppNudges}
-                    onChange={(e) => setEnableWhatsAppNudges(e.target.checked)}
-                    className="w-4 h-4 accent-[#25D366] rounded cursor-pointer"
-                  />
-                </label>
-
-                <label className="flex items-center justify-between cursor-pointer pt-2 border-t border-[#241c33]">
-                  <div>
-                    <span className="text-[#f5efe6] font-bold block">Low-Bandwidth Mobile Audio Previews</span>
-                    <span className="text-[10px] text-[#6d6183] block">Compress preview snippets for fast streaming over 3G/4G networks</span>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={lowBandwidthMode}
-                    onChange={(e) => setLowBandwidthMode(e.target.checked)}
-                    className="w-4 h-4 accent-[#25D366] rounded cursor-pointer"
-                  />
-                </label>
-              </div>
-            </div>
-          </div>
-
-          {/* 3. AUDIO MASTERING & RELEASE BLOCKING CEILINGS */}
-          <div className="p-6 rounded-3xl bg-[#120e1b] border border-[#241c33] space-y-5 shadow-lg">
-            <div className="flex items-center gap-2.5 pb-3 border-b border-[#241c33]">
-              <Volume2 className="w-5 h-5 text-[#f2542d]" />
-              <h3 className="font-serif text-lg font-bold text-[#f5efe6]">Audio Mastering & DSP Release Blockers</h3>
-            </div>
-
-            <div className="space-y-4 font-mono text-xs">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <label className="text-[#a294b8] uppercase tracking-wider block">Target Integrated Loudness</label>
-                  <div className="flex items-center gap-2 bg-[#08060d] border border-[#342847] rounded-xl px-3 py-2 text-[#43c9a0]">
-                    <input
-                      type="number"
-                      step="0.1"
-                      value={targetLufs}
-                      onChange={(e) => setTargetLufs(parseFloat(e.target.value))}
-                      className="w-full bg-transparent font-bold focus:outline-none"
-                    />
-                    <span>LUFS</span>
-                  </div>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-[#a294b8] uppercase tracking-wider block">True Peak Max Ceiling</label>
-                  <div className="flex items-center gap-2 bg-[#08060d] border border-[#342847] rounded-xl px-3 py-2 text-[#f2542d]">
-                    <input
-                      type="number"
-                      step="0.1"
-                      value={truePeakCeiling}
-                      onChange={(e) => setTruePeakCeiling(parseFloat(e.target.value))}
-                      className="w-full bg-transparent font-bold focus:outline-none"
-                    />
-                    <span>dBTP</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="p-3.5 rounded-2xl bg-[#08060d] border border-[#f2542d]/30">
-                <label className="flex items-center justify-between cursor-pointer">
-                  <div>
-                    <span className="text-[#ff7a4d] font-bold block">Hard Release Block on Peak Breach</span>
-                    <span className="text-[10px] text-[#6d6183] block">Strictly disable distribution delivery if True Peak exceeds -1.0 dBTP ceiling</span>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={hardReleaseBlock}
-                    onChange={(e) => setHardReleaseBlock(e.target.checked)}
-                    className="w-4 h-4 accent-[#f2542d] rounded cursor-pointer"
-                  />
-                </label>
-              </div>
-            </div>
-          </div>
-
-          {/* 4. AI PROVENANCE & DATA PRIVACY POSTURE */}
-          <div className="p-6 rounded-3xl bg-[#120e1b] border border-[#241c33] space-y-5 shadow-lg">
-            <div className="flex items-center gap-2.5 pb-3 border-b border-[#241c33]">
-              <ShieldCheck className="w-5 h-5 text-[#ffd48a]" />
-              <h3 className="font-serif text-lg font-bold text-[#f5efe6]">AI Agent Provenance & Privacy</h3>
-            </div>
-
-            <div className="space-y-4 font-mono text-xs">
-              <div className="p-3.5 rounded-2xl bg-[#08060d] border border-[#ffd48a]/30 space-y-3">
-                <label className="flex items-center justify-between cursor-pointer">
-                  <div>
-                    <span className="text-[#ffd48a] font-bold block">Zero-Retention Ephemeral RAM Processing</span>
-                    <span className="text-[10px] text-[#6d6183] block">Never retain audio stems or lyrics on remote servers or for model training</span>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={zeroRetentionMode}
-                    onChange={(e) => setZeroRetentionMode(e.target.checked)}
-                    className="w-4 h-4 accent-[#ffd48a] rounded cursor-pointer"
-                  />
-                </label>
-
-                <label className="flex items-center justify-between cursor-pointer pt-2 border-t border-[#241c33]">
-                  <div>
-                    <span className="text-[#f5efe6] font-bold block">Auto-Run Vetted Specialist Agents</span>
-                    <span className="text-[10px] text-[#6d6183] block">Execute installed marketplace agents automatically on new track ingests</span>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={autoRunVettedAgents}
-                    onChange={(e) => setAutoRunVettedAgents(e.target.checked)}
-                    className="w-4 h-4 accent-[#ffd48a] rounded cursor-pointer"
-                  />
-                </label>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-[#a294b8] uppercase tracking-wider block">Preferred Foundation Intelligence Engine</label>
-                <select
-                  value={preferredModel}
-                  onChange={(e) => setPreferredModel(e.target.value)}
-                  className="w-full bg-[#08060d] border border-[#342847] text-[#ffd48a] rounded-xl px-3.5 py-2.5 focus:outline-none"
-                >
-                  <option value="Gemini 2.5 Flash">Gemini 2.5 Flash (Ultra-Fast Audio & Meter Inference)</option>
-                  <option value="Gemini 1.5 Pro">Gemini 1.5 Pro (Deep Composition & Harmonic Reasoning)</option>
-                </select>
-              </div>
-            </div>
-          </div>
-
-          {/* 5. DSP DISTRIBUTION & COPYRIGHT CREDENTIALS */}
-          <div className="p-6 rounded-3xl bg-[#120e1b] border border-[#241c33] space-y-5 shadow-lg lg:col-span-2">
-            <div className="flex items-center gap-2.5 pb-3 border-b border-[#241c33]">
-              <Key className="w-5 h-5 text-[#a56bd6]" />
-              <h3 className="font-serif text-lg font-bold text-[#f5efe6]">DSP Distribution Credentials & Royalty Escrow</h3>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 font-mono text-xs">
-              <div className="space-y-1.5">
-                <label className="text-[#a294b8] uppercase tracking-wider block">Global ISRC Code Prefix</label>
-                <input
-                  type="text"
-                  value={isrcPrefix}
-                  onChange={(e) => setIsrcPrefix(e.target.value)}
-                  className="w-full bg-[#08060d] border border-[#342847] text-[#a56bd6] font-bold rounded-xl px-3.5 py-2.5 focus:outline-none"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-[#a294b8] uppercase tracking-wider block">Apple Digital Masters ID</label>
-                <input
-                  type="text"
-                  value={appleMasteringId}
-                  onChange={(e) => setAppleMasteringId(e.target.value)}
-                  className="w-full bg-[#08060d] border border-[#342847] text-[#f5efe6] rounded-xl px-3.5 py-2.5 focus:outline-none"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-[#a294b8] uppercase tracking-wider block">Spotify for Artists Direct API</label>
-                <div className="flex items-center justify-between bg-[#08060d] border border-[#342847] rounded-xl px-3.5 py-2">
-                  <span className="text-[#43c9a0] font-bold flex items-center gap-1.5">
-                    <CheckCircle2 className="w-4 h-4 text-[#43c9a0]" />
-                    Connected
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setSpotifyStatus(spotifyStatus === 'connected' ? 'disconnected' : 'connected')}
-                    className="text-[10px] text-[#a294b8] hover:underline"
-                  >
-                    {spotifyStatus === 'connected' ? 'Re-key' : 'Connect'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-
+          ))}
         </div>
-      )}
-
-      {/* Save Notification Toast */}
-      {savedToast && (
-        <div className="fixed bottom-6 right-6 z-50 p-4 rounded-2xl bg-[#191324] border-2 border-[#43c9a0] text-[#f5efe6] shadow-2xl flex items-center gap-3 animate-fadeIn">
-          <CheckCircle2 className="w-5 h-5 text-[#43c9a0]" />
-          <div className="text-xs font-mono">
-            <span className="font-bold text-[#43c9a0] block">{toastMessage}</span>
-            <span>Workspace billing and preferences updated successfully.</span>
-          </div>
-        </div>
-      )}
-
+      </div>
     </div>
   );
 };
-

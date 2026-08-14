@@ -1,0 +1,124 @@
+{
+  "what_this_is": "One real track, measured, failed, fixed, measured again. Lyria 3 Pro generated the audio over the Gemini API on 2026-08-11. Every number here comes from services/audio/features.py via pyloudnorm \u2014 the same ITU-R BS.1770 code the deployed audio service runs. Nothing was typed by hand and nothing was rounded to look better.",
+  "spec": {
+    "platform": "spotify",
+    "lufs_target": -14.0,
+    "lufs_tolerance": 1.0,
+    "true_peak_max_db": -1.0,
+    "source": "services/agents/mastering/specs.py"
+  },
+  "source_track": {
+    "provider": "lyria_3_pro_gemini",
+    "model_version": "lyria-3-pro-preview",
+    "sha256": "fc0156023a733ab61a83e4c26df93b73d68b31266872f64ed9c001593045f57b",
+    "full_length_s": 173.035,
+    "content_credential": {
+      "format": "c2pa",
+      "offset": 63,
+      "byte_length": 6013,
+      "manifest_sha256": "7088651554b56bdbde6597663f656d3e13adb65dbaa9b655ee440bc24b48e464",
+      "verification": "not_verified"
+    },
+    "credential_note": "A C2PA manifest travels inside the returned MP3: a signed claim with a chain to a Google C2PA root and an RFC 3161 timestamp. GHARANA locates and digests it, and does NOT validate the signature \u2014 present, not checked. Re-encoding strips it, so the excerpts below carry none; that is a fact about the encoder, not the origin."
+  },
+  "before": {
+    "wav_sha256": "1d6697119560c7b43b934236efbbcba9dcbe9220e318399a95690c3ed62da363",
+    "lufs_integrated": -13.48,
+    "true_peak_db": 0.02,
+    "duration_s": 32.0,
+    "loudness_pass": true,
+    "true_peak_pass": false,
+    "short_term_lufs": [
+      -14.495,
+      -14.456,
+      -14.181,
+      -14.575,
+      -14.669,
+      -13.903,
+      -13.66,
+      -13.905,
+      -14.91,
+      -14.669,
+      -14.594,
+      -14.154,
+      -14.334,
+      -14.605,
+      -14.724,
+      -14.629,
+      -13.205,
+      -12.367,
+      -12.35,
+      -12.946,
+      -13.161,
+      -12.851,
+      -12.604,
+      -12.639,
+      -12.541,
+      -12.979,
+      -13.099,
+      -12.675,
+      -12.186,
+      -12.435
+    ],
+    "delivered": {
+      "lyria-excerpt.webm": "0d2f224d8037af854f74c8dc522bdaa7c832db938dd77c40c812ffe13e28845e",
+      "lyria-excerpt.m4a": "39d847f74ca6fdb73394834bc8e724955bd371e4ef0234ad3db2400d49802671"
+    }
+  },
+  "after": {
+    "wav_sha256": "0aa4f33f8c9e1a6a98d8ac1f8d4968649c1c57477b664ef74a2fe402919a9ad3",
+    "lufs_integrated": -14.68,
+    "true_peak_db": -1.18,
+    "duration_s": 32.0,
+    "loudness_pass": true,
+    "true_peak_pass": true,
+    "short_term_lufs": [
+      -15.695,
+      -15.656,
+      -15.381,
+      -15.775,
+      -15.869,
+      -15.103,
+      -14.86,
+      -15.105,
+      -16.11,
+      -15.869,
+      -15.794,
+      -15.354,
+      -15.534,
+      -15.805,
+      -15.924,
+      -15.829,
+      -14.405,
+      -13.567,
+      -13.55,
+      -14.146,
+      -14.361,
+      -14.051,
+      -13.804,
+      -13.839,
+      -13.741,
+      -14.179,
+      -14.299,
+      -13.875,
+      -13.386,
+      -13.635
+    ],
+    "delivered": {
+      "lyria-fixed.webm": "aeefa05d8101349233a6e11f345c2adcd6d59b02a677aa0920600e52214e37a1",
+      "lyria-fixed.m4a": "bd052428961b5152ea3a0bf16e3d6e6f96f893f47c9d217bcfa0d2370facdaa6"
+    }
+  },
+  "the_fix": {
+    "operation": "gain trim, -1.2 dB",
+    "limiting": false,
+    "why": "The overshoot was small enough that a straight trim clears the -1.0 dBTP ceiling AND lands loudness inside the -14 +/- 1 LUFS window. Reaching for a limiter would have squashed dynamics nothing asked us to squash.",
+    "what_it_did_not_fix": "Loudness moved from -13.48 to -14.68 LUFS. Both pass, but the track is now quieter and closer to the bottom of tolerance. That is a trade the artist should see, not one to hide behind two green ticks."
+  },
+  "measured_by": {
+    "module": "services/audio/features.py",
+    "engine": "pyloudnorm",
+    "standard": "ITU-R BS.1770 / EBU R128",
+    "not_the_browser": "The widget this replaced ran an AnalyserNode FFT and showed RMS. RMS is not LUFS and a browser cannot compute BS.1770 \u2014 the one place the product demonstrated its central claim was the one place it was not doing it."
+  }
+}

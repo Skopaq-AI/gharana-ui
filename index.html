@@ -1,16 +1,28 @@
 <!doctype html>
-<html lang="en" class="bg-[#08060d] text-[#f5efe6] antialiased">
+<html lang="en" class="bg-bg text-ink antialiased">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
     <title>GHARANA — The Label You Never Signed With</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..800;1,9..144,300..800&family=Instrument+Sans:ital,wght@0,400..700;1,400..700&family=JetBrains+Mono:ital,wght@0,300..800;1,300..800&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!--
+      GHARANA Signal's three faces. This tag still requested Night Raga's
+      (Fraunces, Instrument Sans) long after the design system changed, so the
+      console was loading two serif families it no longer used and none of the
+      ones it did — the type never actually switched.
+
+      JetBrains Mono is not a stylistic choice here: monospace is how the
+      console says a number came from measurement rather than from a model.
+    -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400..800&family=Instrument+Sans:wght@400..700&family=JetBrains+Mono:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
   </head>
-  <body class="bg-[#08060d] text-[#f5efe6] selection:bg-[#f2542d] selection:text-[#08060d] min-h-screen">
+  <body class="bg-bg text-ink selection:bg-accent selection:text-accent-on min-h-screen">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-

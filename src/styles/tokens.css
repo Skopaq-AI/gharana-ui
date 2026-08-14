@@ -1,0 +1,148 @@
+/**
+ * GHARANA Night Raga — the console's design tokens.
+ *
+ * THIS FILE IS THE ONLY PLACE A COLOUR IS DEFINED.
+ *
+ * Every component reaches for `bg-panel`, `text-muted`, `border-line`,
+ * `text-accent`. Nothing writes a hex. That is what made replacing an entire
+ * palette a one-file change rather than a rewrite of 1,860 literals, which is
+ * the state this file was written to end.
+ *
+ * WHY THIS REPLACED "SIGNAL"
+ * --------------------------
+ * Signal was #ccff00 on #0a0a0a with #ffffff text: acid lime on pure black.
+ * That is the most recognisable machine-generated palette of the decade, and
+ * pure black with pure white are the two colours you get when nobody chose. It
+ * said "AI SaaS template" while the product underneath said something specific.
+ *
+ * Night Raga is named for what this product actually is. A gharana is a lineage
+ * in Indian classical music; a raga has a time of day. Ink, parchment,
+ * vermilion, saffron and jade are that world's materials, and they were sitting
+ * in a sibling repository the whole time.
+ *
+ * THE ARGUMENT THIS FILE USED TO MAKE, AND WHY IT WAS WRONG
+ * ---------------------------------------------------------
+ * The previous version justified lime like this: "Night Raga's primary was
+ * vermilion #f2542d, which carries WHITE text. Signal lime carries BLACK."
+ *
+ * Measured, that is false. White on #f2542d is 3.45:1 and fails normal text.
+ * Ink on the same vermilion is 5.84:1 and passes. Vermilion carries INK. Both
+ * palettes take dark text on their accent, so the difference the migration was
+ * argued on did not exist — a claim about a colour that nobody ran the numbers
+ * on, in a codebase whose entire thesis is that you run the numbers.
+ *
+ * WHY THE ACTION COLOUR AND THE HEALTHY-MEASUREMENT COLOUR ARE NOW DIFFERENT
+ * --------------------------------------------------------------------------
+ * Signal collapsed them deliberately: "a healthy measurement, a confirmed state
+ * and the primary action are the same colour because they are the same idea."
+ *
+ * They are not the same idea, and this product is the reason. A healthy
+ * measurement is the machine's statement about a file. The primary action is
+ * the artist's decision about their own release. Everything here — five
+ * checkpoints, no auto-approve, a redo that forks instead of overwriting —
+ * exists to hold those two apart. Painting them one colour collapses in the
+ * interface the exact distinction the system is built to defend.
+ *
+ * So: JADE is the machine reporting that something measured fine. VERMILION is
+ * a thing waiting on a person. They are never swapped, and `.ember-pulse` in
+ * index.css is vermilion for that reason — a checkpoint awaiting approval
+ * glows like an ember, because it is warm and it is waiting for you.
+ *
+ * EVERY VALUE BELOW WAS MEASURED, NOT PICKED
+ * ------------------------------------------
+ * Contrast against --bg, WCAG 2.1 relative luminance. Ratios are in the
+ * comments. Night Raga's own --text-faint (#6d6183) is NOT used as given: at
+ * 3.54:1 it is large-text-only, and this console sets small mono labels in it.
+ * It was lightened along its own hue until small text passed.
+ */
+
+:root {
+  /* -- ground ------------------------------------------------------------ */
+  /* Ink, not black. The purple bias is what separates a chosen dark from the
+     #0a0a0a that every generated dashboard ships. Warmth stays out of the
+     panels so meters and waveforms still read clean against them. */
+  --bg: #08060d;
+  --panel: #0d0a14;
+  --surface: #120e1b;
+  --surface-raised: #191324;
+  --border: #241c33;
+  --border-strong: #342847;
+
+  /* -- text -------------------------------------------------------------- */
+  /* Parchment, not white — 17.63:1, and it stops the page glaring. */
+  --text: #f5efe6;
+  --text-muted: #a294b8; /* 7.16:1 */
+  --text-dim: #8577a0; /* 4.94:1 — lightened from Night Raga's #6d6183 (3.54:1),
+                          which fails at the size this console sets mono labels */
+  /* "Not measured" and other deliberate absences. Quiet, never alarming — an
+     absent measurement is a fact about the world, not an error the artist
+     caused, and must never be mistaken for a value. */
+  --text-absent: #75688c; /* 3.95:1, and only ever on large or non-essential text */
+
+  /* -- accent: a thing waiting on a person -------------------------------- */
+  /* Vermilion. Used scarcely: the primary action, and a checkpoint that has
+     stopped and is waiting for you. Never decoration, and never for reporting
+     that a measurement was fine — that is jade, below. */
+  --accent: #f2542d;
+  --accent-hover: #ff7a4d;
+  --accent-on: #08060d; /* text ON accent. Ink, at 5.84:1. White is 3.45:1 and
+                           fails; this pairing is measured, not chosen. */
+  --accent-dim: rgba(242, 84, 45, 0.12);
+  --accent-border: rgba(242, 84, 45, 0.4);
+
+  /* -- status ------------------------------------------------------------- */
+  /* Red is reserved for release-stopping problems. If everything can be red,
+     the artist learns to approve past red, and the blocking gate is decorative.
+     Held apart from vermilion in hue so "blocked" never reads as "your turn". */
+  --blocking: #ff5c5c; /* 6.66:1 */
+  --blocking-bg: rgba(255, 92, 92, 0.1);
+  --blocking-border: rgba(255, 92, 92, 0.4);
+  --blocking-on: #08060d;
+
+  /* Saffron is "read this before you approve", never "you cannot proceed". */
+  --caution: #f5b544; /* 11.11:1 */
+  --caution-bg: rgba(245, 181, 68, 0.1);
+  --caution-border: rgba(245, 181, 68, 0.4);
+  --caution-on: #08060d;
+
+  /* Jade: the machine reporting that something measured within spec. The one
+     colour on this page that means "a number came back and it was fine". */
+  --ok: #43c9a0; /* 9.69:1 */
+  --ok-bg: rgba(67, 201, 160, 0.1);
+  --ok-border: rgba(67, 201, 160, 0.4);
+  --ok-on: #08060d;
+
+  /* -- categorical ------------------------------------------------------- */
+  /* For labelling KINDS of thing (which agent, which stage), never for saying
+     whether something is good or bad — status has its colours above. Plum sits
+     off the warm/cool axis the status colours use, so it cannot be misread as
+     one of them. */
+  --info: #b98ae0; /* 7.46:1 */
+  --info-bg: rgba(185, 138, 224, 0.1);
+  --info-border: rgba(185, 138, 224, 0.35);
+
+  /* -- third-party brand ------------------------------------------------- */
+  /* WhatsApp's own green, used ONLY on the WhatsApp affordance. A brand mark is
+     not part of this palette and must not be borrowed for anything else — and
+     note it is NOT --ok, however similar it looks. */
+  --brand-whatsapp: #25d366;
+
+  /* -- type -------------------------------------------------------------- */
+  /* Fraunces for display: a serif with real character, which is what stops a
+     dark interface reading as a terminal. Instrument Sans carries prose.
+     Space Grotesk and Inter were the previous pair and are the two faces every
+     generated page reaches for. */
+  --font-headline: "Fraunces", Georgia, serif;
+  --font-body: "Instrument Sans", system-ui, sans-serif;
+  /* Semantic, not stylistic. Monospace is the signal that a value came from
+     measurement rather than from a model: every measured number, unit,
+     timestamp, id and locator chip is mono, and prose never is. That is the
+     product's central claim made visible. */
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  /* -- shape ------------------------------------------------------------- */
+  /* Closer to a hardware faceplate than a web card. */
+  --radius: 0.75rem;
+  --radius-lg: 1rem;
+  --radius-xl: 1.5rem;
+}

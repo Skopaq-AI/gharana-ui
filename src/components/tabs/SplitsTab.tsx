@@ -1,12 +1,8 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Users,
   Shield,
-  FileCheck,
-  CheckCircle2,
   AlertTriangle,
-  Plus,
-  Trash2,
+  CheckCircle2,
   Link2,
   Lock,
   Unlock,
@@ -14,880 +10,1117 @@ import {
   FileText,
   Clock,
   Code2,
-  Info,
   Check,
-  ExternalLink,
-  Zap,
-  HelpCircle
+  RefreshCw,
+  Flame,
+  XCircle,
+  Users,
+  ShieldAlert
 } from 'lucide-react';
+import { TrackItem } from '../../types';
+import { PageHeader } from '../SectionPanel';
 import {
-  TrackItem,
-  SplitContributor,
-  LedgerEvent,
-  CoverClearanceGate,
-  SplitSheetWire
-} from '../../types';
-import { HumanCheckpointCard } from '../HumanCheckpointCard';
-import { PageHeader, SectionCard, SectionHeader, StatCard } from '../SectionPanel';
+  ApiError,
+  approveStage,
+  getRun,
+  listProjects,
+  listRuns,
+  redoStage,
+  type PipelineRun,
+  type Project,
+  type ReleaseMetadata,
+  type RunSummary,
+  type SplitParty,
+  type SplitSheet,
+  type StageResult
+} from '../../lib/api';
 
-interface SplitsTabProps {
-  track: TrackItem;
-  onUpdateTrack: (updated: TrackItem) => void;
-  onInspectRaw: (title: string, payload: any) => void;
+/**
+ * Rights & Splits.
+ *
+ * Everything shown here is the output of a pipeline run's rights stage
+ * (`rights_splits.create_split_sheet`). Nothing on this screen is computed in
+ * the browser except the per-side totals, which are summed from the parties the
+ * backend returned. There is no local editing: the orchestrator dispatches
+ * create_split_sheet with `project_id` alone, so a slider here would move a
+ * number that never reaches the backend.
+ */
+
+/** Stage names that carry a SplitSheet in the shipped templates. */
+const RIGHTS_STAGE_NAMES = ['rights', 'rights_clearance'];
+/** Stage names that carry ReleaseMetadata (source of ISRC/UPC, when present). */
+const RELEASE_STAGE_NAMES = ['release', 'sync_pitch_package'];
+
+/** How often an in-flight run is re-polled. */
+const POLL_MS = 5000;
+
+/**
+ * The rights stage returns a SplitSheet plus two extra keys the agent adds:
+ * the validator's problem list and the hash-chained ledger receipt.
+ */
+interface RightsStageOutput extends SplitSheet {
+  validation_problems?: string[];
+  ledger?: {
+    id?: string | null;
+    event_type?: string;
+    prev_hash?: string | null;
+    hash?: string | null;
+    created_at?: string | null;
+    persisted?: boolean;
+    error?: string;
+  };
 }
 
-export const SplitsTab: React.FC<SplitsTabProps> = ({
-  track,
-  onUpdateTrack,
-  onInspectRaw
-}) => {
-  const splitData = track.splitGovernance;
+export function describeError(err: unknown): string {
+  if (err instanceof ApiError) {
+    if (err.status === 401 || err.status === 403) {
+      return `Gateway rejected the request (${err.status}). The console's server-side GHARANA_API_KEY is missing or wrong.`;
+    }
+    if (err.status === 0) return err.detail;
+    return `${err.status} — ${err.detail}`;
+  }
+  return err instanceof Error ? err.message : String(err);
+}
 
-  // Local state for contributors
-  const [contributors, setContributors] = useState<SplitContributor[]>(
-    splitData?.contributors || []
+function isSplitSheetOutput(output: Record<string, unknown> | null): boolean {
+  return Boolean(output && Array.isArray((output as { parties?: unknown }).parties));
+}
+
+function isReleaseMetadataOutput(output: Record<string, unknown> | null): boolean {
+  return Boolean(output && 'ai_manifest' in output && 'validation_problems' in output);
+}
+
+export function findStage(
+  run: PipelineRun | null,
+  names: string[],
+  shapeMatches: (output: Record<string, unknown> | null) => boolean
+): StageResult | null {
+  if (!run) return null;
+  const byName = run.stages.find((s) => names.includes(s.stage));
+  if (byName) return byName;
+  return run.stages.find((s) => shapeMatches(s.output)) ?? null;
+}
+
+/** 0.01 tolerance: shares are floats on the wire, 33.33 * 3 is never exactly 100. */
+function isHundred(total: number): boolean {
+  return Math.abs(total - 100) < 0.01;
+}
+
+function formatPct(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+}
+
+export function formatTimestamp(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
+}
+
+export const STAGE_STATUS_STYLE: Record<string, string> = {
+  pending: 'bg-surface text-muted border-line-strong',
+  running: 'bg-info/20 text-info border-info/40',
+  awaiting_approval: 'bg-caution/20 text-caution border-caution/40',
+  approved: 'bg-accent/20 text-accent border-accent/40',
+  redo_requested: 'bg-[var(--accent-dim)] text-accent-hover border-[var(--accent-border)]',
+  failed: 'bg-[var(--accent-dim)] text-accent-hover border-accent',
+  skipped: 'bg-surface text-dim border-line-strong'
+};
+
+// ---------------------------------------------------------------------------
+// Shared shell: project picker, run picker, load/empty/error states
+// ---------------------------------------------------------------------------
+
+export interface RunContext {
+  projects: Project[] | null;
+  projectsError: string | null;
+  projectId: string | null;
+  setProjectId: (id: string) => void;
+  runs: RunSummary[] | null;
+  runsError: string | null;
+  runId: string | null;
+  setRunId: (id: string) => void;
+  run: PipelineRun | null;
+  runError: string | null;
+  runLoading: boolean;
+  refreshRun: () => void;
+  applyRun: (updated: PipelineRun) => void;
+}
+
+export function useRunContext(preferredProjectId?: string | null): RunContext {
+  const [projects, setProjects] = useState<Project[] | null>(null);
+  const [projectsError, setProjectsError] = useState<string | null>(null);
+  const [projectId, setProjectId] = useState<string | null>(preferredProjectId ?? null);
+
+  const [runs, setRuns] = useState<RunSummary[] | null>(null);
+  const [runsError, setRunsError] = useState<string | null>(null);
+  const [runId, setRunId] = useState<string | null>(null);
+
+  const [run, setRun] = useState<PipelineRun | null>(null);
+  const [runError, setRunError] = useState<string | null>(null);
+  const [runLoading, setRunLoading] = useState(false);
+  const [reloadToken, setReloadToken] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    setProjectsError(null);
+    listProjects()
+      .then((rows) => {
+        if (cancelled) return;
+        setProjects(rows);
+        setProjectId((current) => current ?? rows[0]?.id ?? null);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setProjectsError(describeError(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // The shell owns project selection when it passes one in; follow it.
+  useEffect(() => {
+    if (preferredProjectId) setProjectId(preferredProjectId);
+  }, [preferredProjectId]);
+
+  // Switching project invalidates the run list and the loaded run. Kept
+  // separate from the fetch below so a plain Refresh does not yank the artist
+  // off a run they deliberately selected.
+  useEffect(() => {
+    setRuns(null);
+    setRunsError(null);
+    setRunId(null);
+    setRun(null);
+  }, [projectId]);
+
+  useEffect(() => {
+    if (!projectId) return;
+    let cancelled = false;
+    setRunsError(null);
+    listRuns(projectId)
+      .then((rows) => {
+        if (cancelled) return;
+        const ordered = [...rows].sort((a, b) =>
+          String(b.created_at ?? '').localeCompare(String(a.created_at ?? ''))
+        );
+        setRuns(ordered);
+        setRunId((prev) =>
+          prev && ordered.some((r) => r.id === prev) ? prev : ordered[0]?.id ?? null
+        );
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setRunsError(describeError(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, reloadToken]);
+
+  useEffect(() => {
+    if (!runId) return;
+    let cancelled = false;
+    setRun(null);
+    setRunLoading(true);
+    setRunError(null);
+    getRun(runId)
+      .then((r) => {
+        if (!cancelled) setRun(r);
+      })
+      .catch((err) => {
+        if (!cancelled) setRunError(describeError(err));
+      })
+      .finally(() => {
+        if (!cancelled) setRunLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [runId, reloadToken]);
+
+  // Poll only while the run can still change. Stops on completed / failed.
+  const isActive = run ? run.status === 'running' || run.status === 'paused' : false;
+  useEffect(() => {
+    if (!runId || !isActive) return;
+    const timer = setInterval(() => {
+      getRun(runId)
+        .then((r) => setRun(r))
+        .catch((err) => setRunError(describeError(err)));
+    }, POLL_MS);
+    return () => clearInterval(timer);
+  }, [runId, isActive]);
+
+  const refreshRun = useCallback(() => setReloadToken((n) => n + 1), []);
+  const applyRun = useCallback((updated: PipelineRun) => setRun(updated), []);
+
+  return {
+    projects,
+    projectsError,
+    projectId,
+    setProjectId,
+    runs,
+    runsError,
+    runId,
+    setRunId,
+    run,
+    runError,
+    runLoading,
+    refreshRun,
+    applyRun
+  };
+}
+
+export const RunContextBar: React.FC<{
+  ctx: RunContext;
+  stageLabel: string;
+  /** False when the app shell already owns project selection (header picker). */
+  showProjectPicker?: boolean;
+}> = ({ ctx, stageLabel, showProjectPicker = true }) => {
+  const activeProject = ctx.projects?.find((p) => p.id === ctx.projectId) ?? null;
+
+  return (
+    <div className="p-4 glass-panel rounded-2xl border border-line-strong flex flex-col lg:flex-row lg:items-center gap-4 justify-between">
+      <div className="flex flex-col sm:flex-row gap-4 flex-1 min-w-0">
+        <div className="space-y-1 min-w-0 flex-1">
+          <label className="text-[10px] font-mono text-dim uppercase tracking-wider block">
+            Project
+          </label>
+          {ctx.projects === null && !ctx.projectsError ? (
+            <div className="h-9 flex items-center gap-2 font-mono text-xs text-muted">
+              <RefreshCw className="w-3.5 h-3.5 animate-spin text-info" />
+              <span>Loading projects…</span>
+            </div>
+          ) : !showProjectPicker ? (
+            <div className="h-9 flex items-center font-serif text-sm text-ink truncate">
+              {activeProject ? `${activeProject.title} — ${activeProject.artist_name}` : '—'}
+            </div>
+          ) : ctx.projects && ctx.projects.length > 0 ? (
+            <select
+              value={ctx.projectId ?? ''}
+              onChange={(e) => ctx.setProjectId(e.target.value)}
+              className="w-full bg-bg border border-line-strong rounded-xl px-3 py-2 font-serif text-sm text-ink focus:outline-none focus:border-caution"
+            >
+              {ctx.projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.title} — {p.artist_name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <div className="h-9 flex items-center font-mono text-xs text-muted">
+              No projects in the backend yet.
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-1 min-w-0 flex-1">
+          <label className="text-[10px] font-mono text-dim uppercase tracking-wider block">
+            Pipeline Run
+          </label>
+          {ctx.runs === null && ctx.projectId && !ctx.runsError ? (
+            <div className="h-9 flex items-center gap-2 font-mono text-xs text-muted">
+              <RefreshCw className="w-3.5 h-3.5 animate-spin text-info" />
+              <span>Loading runs…</span>
+            </div>
+          ) : ctx.runs && ctx.runs.length > 0 ? (
+            <select
+              value={ctx.runId ?? ''}
+              onChange={(e) => ctx.setRunId(e.target.value)}
+              className="w-full bg-bg border border-line-strong rounded-xl px-3 py-2 font-mono text-xs text-caution focus:outline-none focus:border-caution"
+            >
+              {ctx.runs.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.template} • {r.status} • {formatTimestamp(r.created_at)}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <div className="h-9 flex items-center font-mono text-xs text-muted">
+              {ctx.projectId ? 'No runs for this project yet.' : '—'}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3 flex-shrink-0">
+        <span className="font-mono text-[10px] text-dim uppercase tracking-wider hidden xl:block">
+          {stageLabel}
+        </span>
+        <button
+          onClick={ctx.refreshRun}
+          className="px-3 py-2 rounded-xl bg-surface hover:bg-line border border-line-strong text-muted hover:text-ink font-mono text-xs flex items-center gap-2 transition-colors"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${ctx.runLoading ? 'animate-spin text-info' : ''}`} />
+          <span>Refresh</span>
+        </button>
+      </div>
+
+      {activeProject && (
+        <span className="font-mono text-[10px] text-dim truncate lg:hidden">
+          {activeProject.id}
+        </span>
+      )}
+    </div>
+  );
+};
+
+export const EmptyPanel: React.FC<{
+  tone?: 'neutral' | 'error';
+  icon?: React.ReactNode;
+  title: string;
+  children?: React.ReactNode;
+}> = ({ tone = 'neutral', icon, title, children }) => (
+  <div
+    className={`p-8 rounded-3xl border text-center space-y-3 ${
+      tone === 'error'
+        ? 'bg-blocking/80 border-[var(--accent-border)]'
+        : 'bg-bg/70 border-dashed border-line-strong'
+    }`}
+  >
+    <div className="flex justify-center">
+      {icon ?? <Shield className={`w-7 h-7 ${tone === 'error' ? 'text-accent' : 'text-dim'}`} />}
+    </div>
+    <h3
+      className={`font-serif text-base font-bold ${
+        tone === 'error' ? 'text-accent-hover' : 'text-ink'
+      }`}
+    >
+      {title}
+    </h3>
+    <div className="font-serif text-xs text-muted max-w-xl mx-auto leading-relaxed space-y-2">
+      {children}
+    </div>
+  </div>
+);
+
+/**
+ * Approve / redo bar for a real checkpoint stage.
+ *
+ * Deliberately not `HumanCheckpointCard`: that component opens a mobile modal
+ * carrying hard-coded LUFS and true-peak numbers, and this screen must never
+ * put an invented measurement on screen.
+ */
+export const StageCheckpointBar: React.FC<{
+  title: string;
+  agentLabel: string;
+  stage: StageResult;
+  summary: string;
+  busy: boolean;
+  actionError: string | null;
+  onApprove: () => void;
+  onRedo: () => void;
+  onInspect?: () => void;
+}> = ({ title, agentLabel, stage, summary, busy, actionError, onApprove, onRedo, onInspect }) => {
+  const awaiting = stage.status === 'awaiting_approval';
+
+  return (
+    <div
+      className={`p-5 rounded-2xl glass-panel relative overflow-hidden transition-all ${
+        awaiting
+          ? 'ember-pulse bg-surface/80'
+          : stage.status === 'approved'
+          ? 'border-accent/50 bg-bg/60'
+          : 'border-line-strong/60 bg-bg/40'
+      }`}
+    >
+      {awaiting && (
+        <div className="absolute top-0 right-0 w-32 h-32 bg-[var(--accent-dim)] rounded-full blur-2xl pointer-events-none" />
+      )}
+
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 relative z-10">
+        <div className="flex items-start gap-3.5">
+          <div
+            className={`p-2.5 rounded-xl flex-shrink-0 ${
+              awaiting
+                ? 'bg-[var(--accent-dim)] text-accent-hover border border-[var(--accent-border)]'
+                : stage.status === 'approved'
+                ? 'bg-accent/20 text-accent border border-accent/40'
+                : 'bg-line text-muted'
+            }`}
+          >
+            {awaiting ? (
+              <Flame className="w-5 h-5 animate-pulse text-accent-hover" />
+            ) : stage.status === 'approved' ? (
+              <CheckCircle2 className="w-5 h-5 text-accent" />
+            ) : (
+              <ShieldAlert className="w-5 h-5 text-muted" />
+            )}
+          </div>
+
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-[11px] font-mono-num uppercase tracking-wider px-2 py-0.5 rounded-full bg-line text-caution border border-caution/20">
+                Human Approval Checkpoint
+              </span>
+              <span className="text-xs text-muted font-mono-num">{agentLabel}</span>
+              <span
+                className={`text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded border ${
+                  STAGE_STATUS_STYLE[stage.status] ?? STAGE_STATUS_STYLE.pending
+                }`}
+              >
+                stage: {stage.stage} • {stage.status.replace(/_/g, ' ')} • attempt {stage.attempt}
+              </span>
+            </div>
+
+            <h4 className="font-serif text-base font-semibold text-ink mt-1">{title}</h4>
+            <p className="text-sm font-serif text-ink/90 mt-1.5 leading-relaxed">{summary}</p>
+            {actionError && (
+              <p className="text-xs font-mono text-accent-hover mt-2">{actionError}</p>
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 flex-wrap justify-end flex-shrink-0">
+          {onInspect && (
+            <button
+              onClick={onInspect}
+              className="text-xs text-muted hover:text-ink underline underline-offset-4 px-2 py-1 font-mono-num"
+            >
+              Inspect Stage Output
+            </button>
+          )}
+
+          {awaiting ? (
+            <>
+              <button
+                onClick={onRedo}
+                disabled={busy}
+                className="px-3 py-1.5 rounded-lg bg-surface hover:bg-line border border-line-strong text-xs font-sans text-muted hover:text-accent transition-colors flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <XCircle className="w-3.5 h-3.5" />
+                <span>Redo Stage</span>
+              </button>
+              <button
+                onClick={onApprove}
+                disabled={busy}
+                className="px-4 py-1.5 rounded-lg bg-accent hover:bg-accent-hover text-xs font-sans font-semibold text-accent-on shadow-lg shadow-[var(--accent-dim)] transition-all flex items-center gap-1.5 uppercase tracking-wider disabled:opacity-50"
+              >
+                {busy ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                )}
+                <span>{busy ? 'Sending…' : 'Approve & Lock'}</span>
+              </button>
+            </>
+          ) : (
+            <span
+              className={`px-3 py-1 rounded-lg text-xs font-mono-num border ${
+                STAGE_STATUS_STYLE[stage.status] ?? STAGE_STATUS_STYLE.pending
+              }`}
+            >
+              {stage.status.replace(/_/g, ' ').toUpperCase()}
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Split side panel (read-only — the backend owns these numbers)
+// ---------------------------------------------------------------------------
+
+const SplitSidePanel: React.FC<{
+  heading: string;
+  sideBadge: string;
+  badgeClass: string;
+  subtitle: string;
+  legalNote: string;
+  accentClass: string;
+  parties: SplitParty[];
+  total: number;
+}> = ({ heading, sideBadge, badgeClass, subtitle, legalNote, accentClass, parties, total }) => {
+  const valid = isHundred(total);
+
+  return (
+    <div
+      className={`p-6 rounded-3xl border transition-all space-y-6 ${
+        valid
+          ? 'bg-bg/90 border-line-strong glass'
+          : 'bg-blocking/95 border-accent shadow-2xl shadow-[var(--accent-dim)]'
+      }`}
+    >
+      <div className="flex items-start justify-between border-b border-line pb-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className={`px-2.5 py-0.5 rounded font-mono text-[10px] uppercase font-bold ${badgeClass}`}>
+              {sideBadge}
+            </span>
+            <h3 className="font-serif text-base font-bold text-ink">{heading}</h3>
+          </div>
+          <p className="text-xs text-muted font-serif mt-1">{subtitle}</p>
+        </div>
+
+        <div
+          className={`px-3 py-1.5 rounded-xl border text-xs font-mono text-right ${
+            valid
+              ? 'bg-accent/20 text-accent border-accent/40'
+              : 'bg-[var(--accent-dim)] text-accent-hover border-accent animate-pulse'
+          }`}
+        >
+          <span className="font-bold text-sm block">{formatPct(total)}%</span>
+          <span className="text-[9px] uppercase tracking-wider block">
+            {valid ? '✓ VALID 100%' : '❌ BROKEN SPLIT'}
+          </span>
+        </div>
+      </div>
+
+      {!valid && (
+        <div className="p-4 rounded-2xl bg-[var(--accent-dim)] border border-accent text-xs font-serif text-accent-hover flex items-start gap-3">
+          <AlertTriangle className="w-5 h-5 text-accent flex-shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <span className="font-bold uppercase tracking-wide block">
+              LEGAL RELEASE BLOCK: {heading} total is {formatPct(total)}%, not 100%
+            </span>
+            <p>{legalNote}</p>
+          </div>
+        </div>
+      )}
+
+      <div className="space-y-4">
+        {parties.length === 0 ? (
+          <div className="p-4 rounded-2xl bg-bg border border-dashed border-line-strong text-xs font-serif text-muted">
+            The rights stage returned no parties on this side. A side with no parties totals 0% and
+            cannot be registered or paid out.
+          </div>
+        ) : (
+          parties.map((party, idx) => (
+            <div
+              key={`${party.name}-${party.role}-${idx}`}
+              className="p-4 rounded-2xl bg-bg border border-line space-y-3"
+            >
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-serif text-sm font-semibold text-ink">{party.name}</span>
+                    <span className="text-[10px] font-mono text-muted px-2 py-0.5 rounded bg-surface border border-line-strong">
+                      {party.role}
+                    </span>
+                  </div>
+                  <p className="text-xs font-mono text-dim mt-0.5 truncate">
+                    {party.contact || 'No contact on the split sheet'}
+                  </p>
+                </div>
+
+                <span
+                  className={`px-2.5 py-1 rounded text-[10px] font-mono flex items-center gap-1 flex-shrink-0 ${
+                    party.signed
+                      ? 'bg-accent/20 text-accent border border-accent/40'
+                      : 'bg-caution/20 text-caution border border-caution/40'
+                  }`}
+                >
+                  {party.signed ? <Check className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
+                  <span>{party.signed ? 'SIGNED' : 'UNSIGNED'}</span>
+                </span>
+              </div>
+
+              <div className="flex items-center gap-3 pt-1">
+                <div className="flex-1 h-2 rounded-lg bg-surface overflow-hidden border border-line">
+                  <div
+                    className={`h-full ${accentClass}`}
+                    style={{ width: `${Math.max(0, Math.min(100, party.share_pct))}%` }}
+                  />
+                </div>
+                <span className="font-mono text-xs font-bold text-caution w-16 text-right">
+                  {formatPct(party.share_pct)}%
+                </span>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Tab
+// ---------------------------------------------------------------------------
+
+interface SplitsTabProps {
+  /** Legacy prop from the mock-data console. Not used as a data source. */
+  track?: TrackItem;
+  onUpdateTrack?: (updated: TrackItem) => void;
+  onInspectRaw?: (title: string, payload: any) => void;
+  /** Optional: when the shell knows the project, skip the picker's default. */
+  projectId?: string | null;
+}
+
+export const SplitsTab: React.FC<SplitsTabProps> = ({ onInspectRaw, projectId }) => {
+  const ctx = useRunContext(projectId);
+  const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const rightsStage = useMemo(
+    () => findStage(ctx.run, RIGHTS_STAGE_NAMES, isSplitSheetOutput),
+    [ctx.run]
+  );
+  const releaseStage = useMemo(
+    () => findStage(ctx.run, RELEASE_STAGE_NAMES, isReleaseMetadataOutput),
+    [ctx.run]
   );
 
-  // Local state for cover clearance
-  const [coverGate, setCoverGate] = useState<CoverClearanceGate>(
-    splitData?.coverClearance || {
-      isCoverRelease: false,
-      originalWorkTitle: '',
-      originalComposers: '',
-      originalPublisher: '',
-      iprsClearanceStatus: 'required',
-      directPublisherConsentSigned: false
+  const sheet =
+    rightsStage && isSplitSheetOutput(rightsStage.output)
+      ? (rightsStage.output as unknown as RightsStageOutput)
+      : null;
+
+  const releaseMeta =
+    releaseStage && isReleaseMetadataOutput(releaseStage.output)
+      ? (releaseStage.output as unknown as ReleaseMetadata)
+      : null;
+
+  const composition = sheet ? sheet.parties.filter((p) => p.side === 'composition') : [];
+  const recording = sheet ? sheet.parties.filter((p) => p.side === 'recording') : [];
+  const compTotal = composition.reduce((sum, p) => sum + p.share_pct, 0);
+  const recTotal = recording.reduce((sum, p) => sum + p.share_pct, 0);
+  const bothValid = sheet ? isHundred(compTotal) && isHundred(recTotal) : false;
+  const signedCount = sheet ? sheet.parties.filter((p) => p.signed).length : 0;
+  const validationProblems = sheet?.validation_problems ?? [];
+
+  const runAction = async (kind: 'approve' | 'redo') => {
+    if (!ctx.runId || !rightsStage) return;
+    setBusy(true);
+    setActionError(null);
+    try {
+      const updated =
+        kind === 'approve'
+          ? await approveStage(ctx.runId, rightsStage.stage)
+          : await redoStage(ctx.runId, rightsStage.stage);
+      ctx.applyRun(updated);
+    } catch (err) {
+      setActionError(describeError(err));
+    } finally {
+      setBusy(false);
     }
-  );
-
-  // Local state for ledger events
-  const [ledgerEvents, setLedgerEvents] = useState<LedgerEvent[]>(
-    splitData?.ledgerEvents || []
-  );
-
-  // Split into two distinct arrays
-  const compContributors = contributors.filter((c) => c.side === 'composition');
-  const recContributors = contributors.filter((c) => c.side === 'recording');
-
-  // Live running totals
-  const compTotal = compContributors.reduce((sum, c) => sum + c.sharePercentage, 0);
-  const recTotal = recContributors.reduce((sum, c) => sum + c.sharePercentage, 0);
-
-  const isCompValid = compTotal === 100;
-  const isRecTotalValid = recTotal === 100;
-  const isBothSplitsValid = isCompValid && isRecTotalValid;
-
-  // Cover clearance blocking check
-  const isCoverBlocked =
-    coverGate.isCoverRelease &&
-    (coverGate.iprsClearanceStatus !== 'granted' || !coverGate.directPublisherConsentSigned);
-
-  // Save changes to track state
-  const persistGovernance = (
-    updatedContributors: SplitContributor[],
-    updatedCover: CoverClearanceGate,
-    updatedLedger: LedgerEvent[]
-  ) => {
-    if (!splitData) return;
-
-    onUpdateTrack({
-      ...track,
-      splitGovernance: {
-        ...splitData,
-        contributors: updatedContributors,
-        coverClearance: updatedCover,
-        ledgerEvents: updatedLedger
-      }
-    });
   };
 
-  // Contributor handlers
-  const handleShareChange = (id: string, newShare: number) => {
-    const updated = contributors.map((c) =>
-      c.id === id ? { ...c, sharePercentage: Math.max(0, Math.min(100, newShare)) } : c
-    );
-    setContributors(updated);
-    persistGovernance(updated, coverGate, ledgerEvents);
-  };
-
-  const handleToggleSignature = (id: string) => {
-    const updated = contributors.map((c) => {
-      if (c.id === id) {
-        const nextSigned = !c.signed;
-        return {
-          ...c,
-          signed: nextSigned,
-          signatureStatus: (nextSigned ? 'Signed' : 'Pending') as 'Signed' | 'Pending'
-        };
-      }
-      return c;
-    });
-    setContributors(updated);
-
-    // Append signature ledger event
-    const target = contributors.find((c) => c.id === id);
-    if (target) {
-      appendLedgerEvent(
-        'signed',
-        {
-          party: target.name,
-          side: target.side,
-          signed: !target.signed
-        }
-      );
-    }
-
-    persistGovernance(updated, coverGate, ledgerEvents);
-  };
-
-  const handleAddContributor = (side: 'composition' | 'recording') => {
-    const isComp = side === 'composition';
-    const newContr: SplitContributor = {
-      id: `c-${Date.now()}`,
-      name: isComp ? 'New Lyricist / Writer' : 'New Performer / Producer',
-      role: isComp ? 'Co-Songwriter' : 'Session Performer',
-      side,
-      sharePercentage: 0,
-      email: 'collaborator@studio.com',
-      contact: '+91 90000 00000',
-      signed: false,
-      signatureStatus: 'Pending'
-    };
-    const updated = [...contributors, newContr];
-    setContributors(updated);
-    persistGovernance(updated, coverGate, ledgerEvents);
-  };
-
-  const handleRemoveContributor = (id: string) => {
-    const updated = contributors.filter((c) => c.id !== id);
-    setContributors(updated);
-    persistGovernance(updated, coverGate, ledgerEvents);
-  };
-
-  // Cover Gate handlers
-  const handleToggleCoverRelease = (enabled: boolean) => {
-    const updatedCover: CoverClearanceGate = {
-      ...coverGate,
-      isCoverRelease: enabled,
-      iprsClearanceStatus: enabled ? 'required' : 'granted',
-      directPublisherConsentSigned: !enabled
-    };
-    setCoverGate(updatedCover);
-
-    appendLedgerEvent('clearance_granted', {
-      action: enabled ? 'Cover Release Mode Enabled - Statutory Gate Active' : 'Original Release Confirmed',
-      isCover: enabled
-    });
-
-    persistGovernance(contributors, updatedCover, ledgerEvents);
-  };
-
-  const handleUpdateCoverField = <K extends keyof CoverClearanceGate>(
-    key: K,
-    val: CoverClearanceGate[K]
-  ) => {
-    const updatedCover = {
-      ...coverGate,
-      [key]: val
-    };
-    setCoverGate(updatedCover);
-    persistGovernance(contributors, updatedCover, ledgerEvents);
-  };
-
-  // Append hash-chained event to ledger
-  const appendLedgerEvent = (eventType: LedgerEvent['event_type'], payload: any) => {
-    const prevHash =
-      ledgerEvents.length > 0
-        ? ledgerEvents[ledgerEvents.length - 1].hash
-        : '0000000000000000000000000000000000000000000000000000000000000000';
-
-    // Simple pseudo-SHA256 hex generator for UI demonstration
-    const strToHash = `${prevHash}-${eventType}-${JSON.stringify(payload)}-${Date.now()}`;
-    let hashNum = 0;
-    for (let i = 0; i < strToHash.length; i++) {
-      hashNum = (hashNum << 5) - hashNum + strToHash.charCodeAt(i);
-      hashNum |= 0;
-    }
-    const hexHash =
-      Math.abs(hashNum).toString(16).padStart(16, 'a') +
-      Math.abs(hashNum * 31).toString(16).padStart(16, 'f') +
-      '8f3c2b1a9e42017d3a8120c4391e00f9';
-
-    const newEvent: LedgerEvent = {
-      id: `ledg-${Date.now()}`,
-      project_id: track.id,
-      event_type: eventType,
-      payload,
-      prev_hash: prevHash,
-      hash: hexHash,
-      created_at: new Date().toISOString()
-    };
-
-    const updatedLedger = [...ledgerEvents, newEvent];
-    setLedgerEvents(updatedLedger);
-    persistGovernance(contributors, coverGate, updatedLedger);
-  };
-
-  // Wire payload construction
-  const buildSplitSheetWirePayload = (): SplitSheetWire => {
-    return {
-      project_id: track.id,
-      work_title: track.title,
-      status: isBothSplitsValid && !isCoverBlocked ? 'verified_split_sheet' : 'invalid_splits_or_blocked',
-      parties: contributors.map((c) => ({
-        name: c.name,
-        role: c.role,
-        side: c.side,
-        share_pct: c.sharePercentage,
-        contact: c.contact || c.email || null,
-        signed: c.signed,
-        ipi_cae: c.ipiCaeNumber
-      }))
-    };
-  };
-
-  const handleApproveCheckpoint = () => {
-    if (!splitData) return;
-    onUpdateTrack({
-      ...track,
-      splitGovernance: {
-        ...splitData,
-        checkpointStatus: 'approved'
-      }
-    });
-  };
-
-  const handleRejectCheckpoint = () => {
-    if (!splitData) return;
-    onUpdateTrack({
-      ...track,
-      splitGovernance: {
-        ...splitData,
-        checkpointStatus: 'rejected'
-      }
-    });
-  };
+  const template = ctx.run?.template ?? null;
+  const isCoverTemplate = template === 'cover_release';
 
   return (
     <div className="space-y-6">
-      {/* Standardized Page Header */}
       <PageHeader
         icon={Shield}
         title="Rights & Split Governance"
-        description="Two separate copyrights (Composition & Recording Master) legally enforced to exactly 100%."
+        description="Composition and recording are separate copyrights. Each side must total exactly 100%."
         badge="Copyright Act 1957"
         action={
           <button
-            onClick={() => {
-              const wire = buildSplitSheetWirePayload();
-              onInspectRaw('SplitSheet Wire Payload (Standard Schema)', wire);
-            }}
-            className="px-4 py-2.5 rounded-xl bg-[#191324] hover:bg-[#241c33] text-[#ffd48a] border border-[#342847] font-mono text-xs font-bold transition-all flex items-center gap-2"
+            onClick={() =>
+              onInspectRaw?.(
+                'Rights stage output (raw)',
+                rightsStage?.output ?? { info: 'No rights stage output on this run yet.' }
+              )
+            }
+            disabled={!onInspectRaw}
+            className="px-4 py-2.5 rounded-xl bg-surface hover:bg-line text-caution border border-line-strong font-mono text-xs font-bold transition-all flex items-center gap-2 disabled:opacity-40"
           >
-            <Code2 className="w-4 h-4 text-[#ffd48a]" />
+            <Code2 className="w-4 h-4 text-caution" />
             <span>Inspect Wire JSON</span>
           </button>
         }
       >
-        {/* Global Legal Validation Status Strip */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          {/* Composition Status */}
-          <div className={`p-3 rounded-2xl border flex items-center justify-between ${
-            isCompValid
-              ? 'bg-[#21a882]/10 border-[#21a882]/40 text-[#43c9a0]'
-              : 'bg-[#f2542d]/20 border-[#f2542d]/60 text-[#ff7a4d]'
-          }`}>
+          <div
+            className={`p-3 rounded-2xl border flex items-center justify-between ${
+              !sheet
+                ? 'bg-surface border-line-strong text-muted'
+                : isHundred(compTotal)
+                ? 'bg-accent/10 border-accent/40 text-accent'
+                : 'bg-[var(--accent-dim)] border-[var(--accent-dim)] text-accent-hover'
+            }`}
+          >
             <span className="text-xs font-serif font-bold uppercase tracking-wider">
               1. Composition Side
             </span>
-            <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-[#08060d]">
-              {compTotal}% {isCompValid ? '✓ 100% VALID' : '❌ MUST BE 100%'}
+            <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-bg">
+              {!sheet
+                ? 'NOT MEASURED'
+                : `${formatPct(compTotal)}% ${isHundred(compTotal) ? '✓ 100% VALID' : '❌ MUST BE 100%'}`}
             </span>
           </div>
 
-          {/* Sound Recording Status */}
-          <div className={`p-3 rounded-2xl border flex items-center justify-between ${
-            isRecTotalValid
-              ? 'bg-[#21a882]/10 border-[#21a882]/40 text-[#43c9a0]'
-              : 'bg-[#f2542d]/20 border-[#f2542d]/60 text-[#ff7a4d]'
-          }`}>
+          <div
+            className={`p-3 rounded-2xl border flex items-center justify-between ${
+              !sheet
+                ? 'bg-surface border-line-strong text-muted'
+                : isHundred(recTotal)
+                ? 'bg-accent/10 border-accent/40 text-accent'
+                : 'bg-[var(--accent-dim)] border-[var(--accent-dim)] text-accent-hover'
+            }`}
+          >
             <span className="text-xs font-serif font-bold uppercase tracking-wider">
               2. Recording Side
             </span>
-            <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-[#08060d]">
-              {recTotal}% {isRecTotalValid ? '✓ 100% VALID' : '❌ MUST BE 100%'}
+            <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-bg">
+              {!sheet
+                ? 'NOT MEASURED'
+                : `${formatPct(recTotal)}% ${isHundred(recTotal) ? '✓ 100% VALID' : '❌ MUST BE 100%'}`}
             </span>
           </div>
 
-          {/* Cover Gate Status */}
-          <div className={`p-3 rounded-2xl border flex items-center justify-between ${
-            !isCoverBlocked
-              ? 'bg-[#21a882]/10 border-[#21a882]/40 text-[#43c9a0]'
-              : 'bg-[#f2542d]/20 border-[#f2542d]/60 text-[#ff7a4d]'
-          }`}>
+          <div className="p-3 rounded-2xl border bg-surface border-line-strong text-muted flex items-center justify-between">
             <span className="text-xs font-serif font-bold uppercase tracking-wider">
-              3. Cover License Gate
+              3. Sheet Status
             </span>
-            <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-[#08060d]">
-              {coverGate.isCoverRelease
-                ? isCoverBlocked ? '❌ COVER BLOCKED' : '✓ CLEARANCE GRANTED'
-                : '✓ ORIGINAL RELEASE'}
+            <span className="font-mono text-xs font-bold px-2 py-0.5 rounded bg-bg text-caution">
+              {sheet
+                ? `${sheet.status.toUpperCase()} • ${signedCount}/${sheet.parties.length} SIGNED`
+                : 'NO SPLIT SHEET YET'}
             </span>
           </div>
         </div>
       </PageHeader>
 
-      {/* Catalog Registry Numbers Bar */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="p-4 glass-panel rounded-2xl border border-[#342847] flex justify-between items-center font-mono text-xs">
-          <div className="flex items-center gap-2">
-            <Key className="w-4 h-4 text-[#ffd48a]" />
-            <span className="text-[#a294b8]">Sound Recording ISRC Code</span>
-          </div>
-          <span className="text-[#ffd48a] font-bold">
-            {splitData?.trackIsrc || 'IN-GH1-26-00104'}
-          </span>
-        </div>
-        <div className="p-4 glass-panel rounded-2xl border border-[#342847] flex justify-between items-center font-mono text-xs">
-          <div className="flex items-center gap-2">
-            <Key className="w-4 h-4 text-[#ffd48a]" />
-            <span className="text-[#a294b8]">Album UPC / EAN Barcode</span>
-          </div>
-          <span className="text-[#ffd48a] font-bold">
-            {splitData?.albumUpc || '8901234567891'}
-          </span>
-        </div>
-      </div>
+      <RunContextBar
+        ctx={ctx}
+        stageLabel="source: rights stage of the selected run"
+        showProjectPicker={!projectId}
+      />
 
-      {/* SECTION: TWO SEPARATE COPYRIGHT COLUMNS */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="font-serif text-lg font-bold text-[#f5efe6] flex items-center gap-2">
-            <FileText className="w-5 h-5 text-[#a56bd6]" />
-            <span>COPYRIGHT SPLIT PANELS</span>
-          </h2>
-          <span className="text-xs font-serif text-[#a294b8]">
-            Adjust sliders or shares. Both columns must sum to exactly 100%.
-          </span>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-
-          {/* PANEL 1: COMPOSITION COPYRIGHT (Publishing) */}
-          <div className={`p-6 rounded-3xl border transition-all space-y-6 ${
-            isCompValid
-              ? 'bg-[#0d0a14]/90 border-[#342847] glass'
-              : 'bg-[#180a0a]/95 border-[#f2542d] shadow-2xl shadow-[#f2542d]/20'
-          }`}>
-            
-            {/* Panel Header */}
-            <div className="flex items-start justify-between border-b border-[#241c33] pb-4">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="px-2.5 py-0.5 rounded bg-[#a56bd6]/20 text-[#a56bd6] border border-[#a56bd6]/30 font-mono text-[10px] uppercase font-bold">
-                    PUBLISHING SIDE
-                  </span>
-                  <h3 className="font-serif text-base font-bold text-[#f5efe6]">
-                    1. Composition Copyright
-                  </h3>
-                </div>
-                <p className="text-xs text-[#a294b8] font-serif mt-1">
-                  Lyrics + Melody (Songwriters, Lyricists, Music Publishers)
-                </p>
+      {/* Load / empty / error gates, in the order they can fail */}
+      {ctx.projectsError ? (
+        <EmptyPanel
+          tone="error"
+          icon={<AlertTriangle className="w-7 h-7 text-accent" />}
+          title="Could not reach the GHARANA gateway"
+        >
+          <p className="font-mono text-[11px] text-accent-hover">{ctx.projectsError}</p>
+          <p>Splits are read from a pipeline run, so nothing can be shown until the gateway answers.</p>
+        </EmptyPanel>
+      ) : ctx.projects === null ? (
+        <EmptyPanel
+          icon={<RefreshCw className="w-7 h-7 text-info animate-spin" />}
+          title="Loading projects…"
+        >
+          <p>Asking the gateway which projects exist.</p>
+        </EmptyPanel>
+      ) : ctx.projects.length === 0 ? (
+        <EmptyPanel title="No projects yet">
+          <p>
+            A split sheet belongs to a project. Create a project and upload an audio artifact, then
+            start a pipeline run — the rights stage produces the split sheet shown here.
+          </p>
+        </EmptyPanel>
+      ) : ctx.runsError ? (
+        <EmptyPanel
+          tone="error"
+          icon={<AlertTriangle className="w-7 h-7 text-accent" />}
+          title="Could not load runs for this project"
+        >
+          <p className="font-mono text-[11px] text-accent-hover">{ctx.runsError}</p>
+        </EmptyPanel>
+      ) : ctx.runs === null ? (
+        <EmptyPanel
+          icon={<RefreshCw className="w-7 h-7 text-info animate-spin" />}
+          title="Loading runs…"
+        >
+          <p>Looking for pipeline runs on this project.</p>
+        </EmptyPanel>
+      ) : ctx.runs.length === 0 ? (
+        <EmptyPanel title="No pipeline run for this project yet">
+          <p>
+            Split sheets are produced by the <span className="font-mono text-caution">rights</span>{' '}
+            stage of a pipeline run. Start a run for this project and the sheet will appear here as
+            soon as that stage completes.
+          </p>
+        </EmptyPanel>
+      ) : ctx.runError ? (
+        <EmptyPanel
+          tone="error"
+          icon={<AlertTriangle className="w-7 h-7 text-accent" />}
+          title="Could not load this run"
+        >
+          <p className="font-mono text-[11px] text-accent-hover">{ctx.runError}</p>
+        </EmptyPanel>
+      ) : !ctx.run ? (
+        <EmptyPanel
+          icon={<RefreshCw className="w-7 h-7 text-info animate-spin" />}
+          title="Loading run…"
+        >
+          <p>Fetching stage results from the orchestrator.</p>
+        </EmptyPanel>
+      ) : !rightsStage ? (
+        <EmptyPanel title="This run has no rights stage">
+          <p>
+            Template <span className="font-mono text-caution">{template ?? '—'}</span> does not
+            include a rights stage, so it produces no split sheet. Use a template whose stages
+            include <span className="font-mono text-caution">rights</span> (single_release,
+            ep_release, sync_submission) or{' '}
+            <span className="font-mono text-caution">rights_clearance</span> (cover_release).
+          </p>
+        </EmptyPanel>
+      ) : rightsStage.status === 'failed' ? (
+        <EmptyPanel
+          tone="error"
+          icon={<AlertTriangle className="w-7 h-7 text-accent" />}
+          title={`The ${rightsStage.stage} stage failed`}
+        >
+          <p className="font-mono text-[11px] text-accent-hover">
+            {rightsStage.error || 'The orchestrator reported a failure with no detail.'}
+          </p>
+          <p>No split sheet exists for this run. Redo the stage once the cause is fixed.</p>
+        </EmptyPanel>
+      ) : !sheet ? (
+        <EmptyPanel
+          icon={
+            rightsStage.status === 'running' ? (
+              <RefreshCw className="w-7 h-7 text-info animate-spin" />
+            ) : undefined
+          }
+          title={
+            rightsStage.status === 'running'
+              ? 'The rights stage is running'
+              : `The rights stage has not run yet (${rightsStage.status.replace(/_/g, ' ')})`
+          }
+        >
+          <p>
+            Stage <span className="font-mono text-caution">{rightsStage.stage}</span> has produced
+            no output yet, so there are no shares to show. Every earlier checkpoint in the run has to
+            be approved before this stage executes.
+          </p>
+        </EmptyPanel>
+      ) : (
+        <>
+          {/* Catalogue identifiers — only ever from the release stage, never invented */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="p-4 glass-panel rounded-2xl border border-line-strong flex justify-between items-center font-mono text-xs">
+              <div className="flex items-center gap-2">
+                <Key className="w-4 h-4 text-caution" />
+                <span className="text-muted">Sound Recording ISRC</span>
               </div>
-
-              {/* Running Total Badge */}
-              <div className={`px-3 py-1.5 rounded-xl border text-xs font-mono text-right ${
-                isCompValid
-                  ? 'bg-[#21a882]/20 text-[#43c9a0] border-[#21a882]/40'
-                  : 'bg-[#f2542d]/30 text-[#ff7a4d] border-[#f2542d] animate-pulse'
-              }`}>
-                <span className="font-bold text-sm block">{compTotal}%</span>
-                <span className="text-[9px] uppercase tracking-wider block">
-                  {isCompValid ? '✓ VALID 100%' : '❌ BROKEN SPLIT'}
-                </span>
-              </div>
+              <span className={releaseMeta?.isrc ? 'text-caution font-bold' : 'text-dim'}>
+                {releaseMeta?.isrc ?? 'Not assigned yet'}
+              </span>
             </div>
-
-            {/* Warning callout if invalid */}
-            {!isCompValid && (
-              <div className="p-4 rounded-2xl bg-[#f2542d]/20 border border-[#f2542d] text-xs font-serif text-[#ff7a4d] flex items-start gap-3">
-                <AlertTriangle className="w-5 h-5 text-[#f2542d] flex-shrink-0 mt-0.5" />
-                <div className="space-y-1">
-                  <span className="font-bold uppercase tracking-wide block">
-                    LEGAL RELEASE BLOCK: Composition Total is {compTotal}%
-                  </span>
-                  <p>
-                    Indian Copyright Law requires publishing splits to total 100% prior to registration with IPRS. Adjust contributor shares below.
-                  </p>
-                </div>
+            <div className="p-4 glass-panel rounded-2xl border border-line-strong flex justify-between items-center font-mono text-xs">
+              <div className="flex items-center gap-2">
+                <Key className="w-4 h-4 text-caution" />
+                <span className="text-muted">Release UPC / EAN</span>
               </div>
+              <span className={releaseMeta?.upc ? 'text-caution font-bold' : 'text-dim'}>
+                {releaseMeta?.upc ?? 'Not assigned yet'}
+              </span>
+            </div>
+          </div>
+
+          {/* Backend validator output — the authoritative gate */}
+          <div
+            className={`p-5 rounded-2xl border flex items-start gap-3 ${
+              validationProblems.length > 0
+                ? 'bg-[var(--accent-dim)] border-accent text-accent-hover'
+                : 'bg-accent/10 border-accent/40 text-accent'
+            }`}
+          >
+            {validationProblems.length > 0 ? (
+              <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5 text-accent" />
+            ) : (
+              <CheckCircle2 className="w-5 h-5 flex-shrink-0 mt-0.5 text-accent" />
             )}
-
-            {/* List of Composition Parties */}
-            <div className="space-y-4">
-              {compContributors.map((party) => (
-                <div
-                  key={party.id}
-                  className="p-4 rounded-2xl bg-[#08060d] border border-[#241c33] hover:border-[#342847] transition-all space-y-3"
-                >
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-serif text-sm font-semibold text-[#f5efe6]">
-                          {party.name}
-                        </span>
-                        <span className="text-[10px] font-mono text-[#a294b8] px-2 py-0.5 rounded bg-[#191324] border border-[#342847]">
-                          {party.role}
-                        </span>
-                      </div>
-                      <p className="text-xs font-mono text-[#6d6183] mt-0.5">
-                        {party.contact || party.email} {party.ipiCaeNumber ? `• ${party.ipiCaeNumber}` : ''}
-                      </p>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => handleToggleSignature(party.id)}
-                        className={`px-2.5 py-1 rounded text-[10px] font-mono transition-all flex items-center gap-1 ${
-                          party.signed
-                            ? 'bg-[#21a882]/20 text-[#43c9a0] border border-[#21a882]/40'
-                            : 'bg-[#f5b544]/20 text-[#ffd48a] border border-[#f5b544]/40 hover:bg-[#f5b544]/30'
-                        }`}
-                        title="Click to toggle signature state"
-                      >
-                        {party.signed ? <Check className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
-                        <span>{party.signed ? 'SIGNED' : 'PENDING'}</span>
-                      </button>
-
-                      <button
-                        onClick={() => handleRemoveContributor(party.id)}
-                        className="p-1.5 text-[#a294b8] hover:text-[#ff7a4d] transition-colors"
-                        title="Remove party"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Share Percentage Slider & Numeric Input */}
-                  <div className="flex items-center gap-3 pt-1">
-                    <input
-                      type="range"
-                      min="0"
-                      max="100"
-                      value={party.sharePercentage}
-                      onChange={(e) => handleShareChange(party.id, parseInt(e.target.value) || 0)}
-                      className="flex-1 accent-[#a56bd6] bg-[#191324] h-2 rounded-lg cursor-pointer"
-                    />
-                    <div className="flex items-center gap-1">
-                      <input
-                        type="number"
-                        min="0"
-                        max="100"
-                        value={party.sharePercentage}
-                        onChange={(e) => handleShareChange(party.id, parseInt(e.target.value) || 0)}
-                        className="w-16 bg-[#120e1b] border border-[#342847] rounded-lg px-2 py-1 text-center font-mono text-xs font-bold text-[#ffd48a] focus:outline-none focus:border-[#a56bd6]"
-                      />
-                      <span className="font-mono text-xs text-[#a294b8]">%</span>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <button
-              onClick={() => handleAddContributor('composition')}
-              className="w-full py-2.5 rounded-2xl bg-[#241c33] hover:bg-[#342847] border border-[#342847] text-xs font-serif text-[#f5efe6] flex items-center justify-center gap-2 transition-colors"
-            >
-              <Plus className="w-4 h-4 text-[#a56bd6]" />
-              <span>Add Composition Writer / Publisher</span>
-            </button>
-          </div>
-
-          {/* PANEL 2: SOUND RECORDING COPYRIGHT (Master) */}
-          <div className={`p-6 rounded-3xl border transition-all space-y-6 ${
-            isRecTotalValid
-              ? 'bg-[#0d0a14]/90 border-[#342847] glass'
-              : 'bg-[#180a0a]/95 border-[#f2542d] shadow-2xl shadow-[#f2542d]/20'
-          }`}>
-            
-            {/* Panel Header */}
-            <div className="flex items-start justify-between border-b border-[#241c33] pb-4">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="px-2.5 py-0.5 rounded bg-[#f2542d]/20 text-[#f2542d] border border-[#f2542d]/30 font-mono text-[10px] uppercase font-bold">
-                    MASTER SIDE
-                  </span>
-                  <h3 className="font-serif text-base font-bold text-[#f5efe6]">
-                    2. Sound Recording Copyright
-                  </h3>
-                </div>
-                <p className="text-xs text-[#a294b8] font-serif mt-1">
-                  The Master Audio (Performers, Producers, Record Labels)
+            <div className="space-y-2 min-w-0">
+              <span className="font-serif text-sm font-bold uppercase tracking-wide block">
+                {validationProblems.length > 0
+                  ? `Rights agent reported ${validationProblems.length} validation problem${
+                      validationProblems.length === 1 ? '' : 's'
+                    }`
+                  : 'Rights agent reported no validation problems'}
+              </span>
+              {validationProblems.length > 0 ? (
+                <ul className="list-disc list-inside space-y-1 font-serif text-xs">
+                  {validationProblems.map((problem, idx) => (
+                    <li key={idx}>{problem}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="font-serif text-xs text-muted">
+                  Both sides validated server-side by <span className="font-mono">SplitSheet.validate_totals</span>.
                 </p>
-              </div>
-
-              {/* Running Total Badge */}
-              <div className={`px-3 py-1.5 rounded-xl border text-xs font-mono text-right ${
-                isRecTotalValid
-                  ? 'bg-[#21a882]/20 text-[#43c9a0] border-[#21a882]/40'
-                  : 'bg-[#f2542d]/30 text-[#ff7a4d] border-[#f2542d] animate-pulse'
-              }`}>
-                <span className="font-bold text-sm block">{recTotal}%</span>
-                <span className="text-[9px] uppercase tracking-wider block">
-                  {isRecTotalValid ? '✓ VALID 100%' : '❌ BROKEN SPLIT'}
-                </span>
-              </div>
+              )}
             </div>
-
-            {/* Warning callout if invalid */}
-            {!isRecTotalValid && (
-              <div className="p-4 rounded-2xl bg-[#f2542d]/20 border border-[#f2542d] text-xs font-serif text-[#ff7a4d] flex items-start gap-3">
-                <AlertTriangle className="w-5 h-5 text-[#f2542d] flex-shrink-0 mt-0.5" />
-                <div className="space-y-1">
-                  <span className="font-bold uppercase tracking-wide block">
-                    LEGAL RELEASE BLOCK: Sound Recording Total is {recTotal}%
-                  </span>
-                  <p>
-                    Master royalty payouts cannot be executed on DSPs without a valid 100% master split. Adjust performer/producer shares below.
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* List of Recording Parties */}
-            <div className="space-y-4">
-              {recContributors.map((party) => (
-                <div
-                  key={party.id}
-                  className="p-4 rounded-2xl bg-[#08060d] border border-[#241c33] hover:border-[#342847] transition-all space-y-3"
-                >
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-serif text-sm font-semibold text-[#f5efe6]">
-                          {party.name}
-                        </span>
-                        <span className="text-[10px] font-mono text-[#a294b8] px-2 py-0.5 rounded bg-[#191324] border border-[#342847]">
-                          {party.role}
-                        </span>
-                      </div>
-                      <p className="text-xs font-mono text-[#6d6183] mt-0.5">
-                        {party.contact || party.email} {party.ipiCaeNumber ? `• ${party.ipiCaeNumber}` : ''}
-                      </p>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => handleToggleSignature(party.id)}
-                        className={`px-2.5 py-1 rounded text-[10px] font-mono transition-all flex items-center gap-1 ${
-                          party.signed
-                            ? 'bg-[#21a882]/20 text-[#43c9a0] border border-[#21a882]/40'
-                            : 'bg-[#f5b544]/20 text-[#ffd48a] border border-[#f5b544]/40 hover:bg-[#f5b544]/30'
-                        }`}
-                        title="Click to toggle signature state"
-                      >
-                        {party.signed ? <Check className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
-                        <span>{party.signed ? 'SIGNED' : 'PENDING'}</span>
-                      </button>
-
-                      <button
-                        onClick={() => handleRemoveContributor(party.id)}
-                        className="p-1.5 text-[#a294b8] hover:text-[#ff7a4d] transition-colors"
-                        title="Remove party"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Share Percentage Slider & Numeric Input */}
-                  <div className="flex items-center gap-3 pt-1">
-                    <input
-                      type="range"
-                      min="0"
-                      max="100"
-                      value={party.sharePercentage}
-                      onChange={(e) => handleShareChange(party.id, parseInt(e.target.value) || 0)}
-                      className="flex-1 accent-[#f2542d] bg-[#191324] h-2 rounded-lg cursor-pointer"
-                    />
-                    <div className="flex items-center gap-1">
-                      <input
-                        type="number"
-                        min="0"
-                        max="100"
-                        value={party.sharePercentage}
-                        onChange={(e) => handleShareChange(party.id, parseInt(e.target.value) || 0)}
-                        className="w-16 bg-[#120e1b] border border-[#342847] rounded-lg px-2 py-1 text-center font-mono text-xs font-bold text-[#ffd48a] focus:outline-none focus:border-[#f2542d]"
-                      />
-                      <span className="font-mono text-xs text-[#a294b8]">%</span>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <button
-              onClick={() => handleAddContributor('recording')}
-              className="w-full py-2.5 rounded-2xl bg-[#241c33] hover:bg-[#342847] border border-[#342847] text-xs font-serif text-[#f5efe6] flex items-center justify-center gap-2 transition-colors"
-            >
-              <Plus className="w-4 h-4 text-[#f2542d]" />
-              <span>Add Master Performer / Producer / Label</span>
-            </button>
           </div>
 
-        </div>
-      </div>
+          <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <h2 className="font-serif text-lg font-bold text-ink flex items-center gap-2">
+                <FileText className="w-5 h-5 text-info" />
+                <span>SPLIT SHEET — {sheet.work_title}</span>
+              </h2>
+              <span className="text-xs font-serif text-muted">
+                Read-only: shares come from the rights stage. The orchestrator dispatches
+                create_split_sheet with the project id alone, so the console cannot edit them yet.
+              </span>
+            </div>
 
-      {/* SECTION: COVER RELEASE STATUTORY CLEARANCE GATE */}
-      <div className="p-6 md:p-8 glass rounded-3xl border border-[#f5b544]/40 bg-[#120e1b]/95 space-y-6 shadow-2xl">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[#241c33] pb-4">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2.5">
-              <Lock className={`w-5 h-5 ${isCoverBlocked ? 'text-[#f2542d]' : 'text-[#ffd48a]'}`} />
-              <h2 className="font-serif text-lg font-bold text-[#f5efe6]">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <SplitSidePanel
+                heading="1. Composition Copyright"
+                sideBadge="PUBLISHING SIDE"
+                badgeClass="bg-info/20 text-info border border-info/30"
+                subtitle="Lyrics + melody (songwriters, lyricists, publishers)"
+                legalNote="Publishing splits must total 100% before the work can be registered with IPRS."
+                accentClass="bg-info"
+                parties={composition}
+                total={compTotal}
+              />
+              <SplitSidePanel
+                heading="2. Sound Recording Copyright"
+                sideBadge="MASTER SIDE"
+                badgeClass="bg-[var(--accent-dim)] text-accent border border-[var(--accent-border)]"
+                subtitle="The master audio (performers, producers, labels)"
+                legalNote="Master royalties cannot be paid out by DSPs without a valid 100% recording split."
+                accentClass="bg-accent"
+                parties={recording}
+                total={recTotal}
+              />
+            </div>
+          </div>
+
+          {/* Cover clearance — enforced by the template, not by a toggle here */}
+          <div className="p-6 md:p-8 glass rounded-3xl border border-caution/40 bg-panel/95 space-y-4 shadow-2xl">
+            <div className="flex items-center gap-2.5 border-b border-line pb-4">
+              {isCoverTemplate ? (
+                <Lock className="w-5 h-5 text-caution" />
+              ) : (
+                <Unlock className="w-5 h-5 text-accent" />
+              )}
+              <h2 className="font-serif text-lg font-bold text-ink">
                 COVER RELEASE STATUTORY CLEARANCE GATE
               </h2>
             </div>
-            <p className="text-xs font-serif text-[#a294b8]">
-              Under Indian Copyright Act 1957, India has <strong>no US-style compulsory mechanical license</strong>. A cover release REQUIRES explicit direct publisher consent.
+
+            <p className="text-xs font-serif text-muted">
+              India has no US-style compulsory mechanical licence, so a cover needs a negotiated
+              licence from the original publisher. That gate lives in the pipeline, not in this
+              screen: the <span className="font-mono text-caution">cover_release</span> template
+              puts <span className="font-mono text-caution">rights_clearance</span> before
+              mastering, and the run cannot reach release without it being approved.
             </p>
-          </div>
 
-          {/* Toggle Switch */}
-          <div className="flex items-center gap-3 bg-[#08060d] p-2 rounded-2xl border border-[#342847]">
-            <span className="text-xs font-serif text-[#f5efe6]">Cover Release Mode:</span>
-            <button
-              onClick={() => handleToggleCoverRelease(!coverGate.isCoverRelease)}
-              className={`px-3 py-1.5 rounded-xl font-mono text-xs font-bold transition-all ${
-                coverGate.isCoverRelease
-                  ? 'bg-[#f2542d] text-white shadow-lg shadow-[#f2542d]/30'
-                  : 'bg-[#241c33] text-[#a294b8]'
-              }`}
-            >
-              {coverGate.isCoverRelease ? 'ENABLED (COVER)' : 'DISABLED (ORIGINAL)'}
-            </button>
-          </div>
-        </div>
-
-        {coverGate.isCoverRelease ? (
-          <div className="space-y-6">
-            
-            {/* Gate Status Callout */}
-            <div className={`p-5 rounded-2xl border flex items-start gap-4 ${
-              isCoverBlocked
-                ? 'bg-[#f2542d]/20 border-[#f2542d] text-[#ff7a4d]'
-                : 'bg-[#21a882]/20 border-[#21a882] text-[#43c9a0]'
-            }`}>
-              {isCoverBlocked ? (
-                <Lock className="w-6 h-6 text-[#f2542d] flex-shrink-0 mt-0.5 animate-bounce" />
-              ) : (
-                <Unlock className="w-6 h-6 text-[#43c9a0] flex-shrink-0 mt-0.5" />
-              )}
-              <div className="space-y-1">
-                <span className="font-bold text-sm uppercase tracking-wider block font-serif">
-                  {isCoverBlocked
-                    ? 'GATE STATUS: DISTRIBUTION RELEASE BLOCKED'
-                    : 'GATE STATUS: COVER CLEARANCE VERIFIED & UNLOCKED'}
-                </span>
-                <p className="text-xs font-serif leading-relaxed">
-                  {isCoverBlocked
-                    ? 'This release is flagged as a cover. Indian law mandates direct consent from the original publisher or IPRS mechanical license. Export is HARD-BLOCKED until clearance status is set to Granted and Direct Publisher Consent is signed.'
-                    : 'Direct publisher consent and IPRS mechanical clearance logged. Statutory requirement satisfied under Indian Copyright law.'}
-                </p>
-              </div>
-            </div>
-
-            {/* Form Fields for Cover Clearance */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-mono text-[#6d6183] uppercase tracking-wider block">
-                  Original Song / Composition Title
-                </label>
-                <input
-                  type="text"
-                  value={coverGate.originalWorkTitle || ''}
-                  onChange={(e) => handleUpdateCoverField('originalWorkTitle', e.target.value)}
-                  placeholder="e.g. Roja Janeman (Original Film Track)"
-                  className="w-full bg-[#08060d] border border-[#342847] rounded-xl px-3 py-2 text-xs font-serif text-[#f5efe6] focus:outline-none focus:border-[#f5b544]"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-mono text-[#6d6183] uppercase tracking-wider block">
-                  Original Composers & Lyricists
-                </label>
-                <input
-                  type="text"
-                  value={coverGate.originalComposers || ''}
-                  onChange={(e) => handleUpdateCoverField('originalComposers', e.target.value)}
-                  placeholder="e.g. A.R. Rahman / Vairamuthu"
-                  className="w-full bg-[#08060d] border border-[#342847] rounded-xl px-3 py-2 text-xs font-serif text-[#f5efe6] focus:outline-none focus:border-[#f5b544]"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-mono text-[#6d6183] uppercase tracking-wider block">
-                  Original Music Publisher / Record Label
-                </label>
-                <input
-                  type="text"
-                  value={coverGate.originalPublisher || ''}
-                  onChange={(e) => handleUpdateCoverField('originalPublisher', e.target.value)}
-                  placeholder="e.g. Saregama India / Sony Music Publishing"
-                  className="w-full bg-[#08060d] border border-[#342847] rounded-xl px-3 py-2 text-xs font-serif text-[#f5efe6] focus:outline-none focus:border-[#f5b544]"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-mono text-[#6d6183] uppercase tracking-wider block">
-                  IPRS / Mechanical Clearance Status
-                </label>
-                <select
-                  value={coverGate.iprsClearanceStatus}
-                  onChange={(e) =>
-                    handleUpdateCoverField(
-                      'iprsClearanceStatus',
-                      e.target.value as 'granted' | 'pending' | 'required'
-                    )
-                  }
-                  className="w-full bg-[#08060d] border border-[#342847] rounded-xl px-3 py-2 text-xs font-mono text-[#ffd48a] focus:outline-none focus:border-[#f5b544]"
-                >
-                  <option value="required">Required (Clearance Pending)</option>
-                  <option value="pending">Submitted to Publisher (Pending Review)</option>
-                  <option value="granted">Granted (Official Consent Letter Received)</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Direct Consent Checkbox */}
-            <div className="p-4 bg-[#08060d] rounded-2xl border border-[#342847] flex items-center justify-between">
-              <div className="space-y-0.5">
-                <span className="text-xs font-serif font-bold text-[#f5efe6] block">
-                  Direct Publisher Consent Agreement Executed
-                </span>
-                <span className="text-[11px] font-serif text-[#a294b8]">
-                  Check this box once the written authorization letter or NOC is attached.
+            {isCoverTemplate ? (
+              <div className="p-4 bg-bg rounded-2xl border border-caution/40 flex items-center gap-3 text-xs font-serif text-caution">
+                <Lock className="w-5 h-5 flex-shrink-0" />
+                <span>
+                  This run uses <span className="font-mono">cover_release</span>. Clearance is stage{' '}
+                  <span className="font-mono">{rightsStage.stage}</span>, currently{' '}
+                  <span className="font-mono">{rightsStage.status.replace(/_/g, ' ')}</span>. Nothing
+                  downstream executes until it is approved.
                 </span>
               </div>
-              <input
-                type="checkbox"
-                checked={coverGate.directPublisherConsentSigned}
-                onChange={(e) =>
-                  handleUpdateCoverField('directPublisherConsentSigned', e.target.checked)
-                }
-                className="w-5 h-5 accent-[#43c9a0] cursor-pointer"
-              />
-            </div>
-
+            ) : (
+              <div className="p-4 bg-bg rounded-2xl border border-line flex items-center gap-3 text-xs font-serif text-muted">
+                <CheckCircle2 className="w-5 h-5 text-accent flex-shrink-0" />
+                <span>
+                  This run uses <span className="font-mono text-caution">{template}</span>, which
+                  has no clearance gate. Cover status is a property of the template a run was started
+                  with — the console cannot flip it after the fact.
+                </span>
+              </div>
+            )}
           </div>
-        ) : (
-          <div className="p-4 bg-[#08060d] rounded-2xl border border-[#241c33] flex items-center gap-3 text-xs font-serif text-[#a294b8]">
-            <CheckCircle2 className="w-5 h-5 text-[#43c9a0] flex-shrink-0" />
-            <span>
-              Original composition confirmed. No third-party cover clearance gate active for this release.
-            </span>
-          </div>
-        )}
-      </div>
 
-      {/* SECTION: HASH-CHAINED LEDGER AUDIT TRAIL */}
-      <div className="glass rounded-3xl p-6 md:p-8 border border-[#342847] bg-[#0d0a14]/90 space-y-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#241c33] pb-4">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2.5">
-              <Link2 className="w-5 h-5 text-[#ffd48a]" />
-              <h2 className="font-serif text-lg font-bold text-[#f5efe6]">
-                HASH-CHAINED LEDGER AUDIT TRAIL
-              </h2>
-              <span className="px-2 py-0.5 rounded bg-[#ffd48a]/20 text-[#ffd48a] border border-[#ffd48a]/30 font-mono text-[10px] uppercase font-bold">
-                Tamper-Evident Chain
+          {/* Real hash-chained ledger receipt from the rights agent */}
+          <div className="glass rounded-3xl p-6 md:p-8 border border-line-strong bg-bg/90 space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-line pb-4">
+              <div className="flex items-center gap-2.5">
+                <Link2 className="w-5 h-5 text-caution" />
+                <h2 className="font-serif text-lg font-bold text-ink">
+                  RIGHTS LEDGER RECEIPT
+                </h2>
+                <span className="px-2 py-0.5 rounded bg-caution/20 text-caution border border-caution/30 font-mono text-[10px] uppercase font-bold">
+                  Hash-Chained
+                </span>
+              </div>
+              <span className="text-[11px] font-serif text-muted">
+                Emitted by the rights agent when the sheet was declared.
               </span>
             </div>
-            <p className="text-xs font-serif text-[#a294b8]">
-              An append-only cryptographic event log anchoring split declarations, contract sends, and digital signatures.
-            </p>
+
+            {sheet.ledger ? (
+              sheet.ledger.persisted === false ? (
+                <div className="p-4 rounded-2xl bg-[var(--accent-dim)] border border-accent text-xs font-serif text-accent-hover flex items-start gap-3">
+                  <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5 text-accent" />
+                  <div className="space-y-1">
+                    <span className="font-bold uppercase tracking-wide block">
+                      This split declaration was NOT persisted to the ledger
+                    </span>
+                    <p className="font-mono text-[11px]">
+                      {sheet.ledger.error || 'The rights agent could not append the event.'}
+                    </p>
+                    <p>
+                      There is no audit trail for this declaration until the ledger database is
+                      reachable and the stage is redone.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-4 sm:p-5 rounded-2xl bg-bg border border-line space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-surface pb-2">
+                    <span className="font-mono text-xs font-bold uppercase tracking-wider text-caution">
+                      {(sheet.ledger.event_type ?? 'event').replace(/_/g, ' ')}
+                    </span>
+                    <span className="text-[10px] font-mono text-dim">
+                      {formatTimestamp(sheet.ledger.created_at)}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2 font-mono text-[10px]">
+                    <div className="flex items-center gap-1.5 text-dim min-w-0">
+                      <span className="uppercase text-[9px] font-bold text-muted">prev_hash:</span>
+                      <span className="truncate text-dim">{sheet.ledger.prev_hash ?? '—'}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-accent min-w-0">
+                      <span className="uppercase text-[9px] font-bold text-accent">hash:</span>
+                      <span className="truncate font-bold">{sheet.ledger.hash ?? '—'}</span>
+                    </div>
+                  </div>
+                </div>
+              )
+            ) : (
+              <div className="p-4 rounded-2xl bg-bg border border-dashed border-line-strong text-xs font-serif text-muted">
+                This stage output carries no ledger receipt. The console does not have a ledger
+                query endpoint, so no further chain history can be shown here.
+              </div>
+            )}
           </div>
 
-          <button
-            onClick={() =>
-              appendLedgerEvent('split_declared', {
-                action: 'Manual Audit Snapshot Logged',
-                verified_by: 'Artist Interface'
-              })
+          <StageCheckpointBar
+            title={`Split sheet sign-off — ${sheet.work_title}`}
+            agentLabel="rights_splits • create_split_sheet"
+            stage={rightsStage}
+            busy={busy}
+            actionError={actionError}
+            summary={
+              validationProblems.length > 0
+                ? `The rights agent flagged ${validationProblems.length} problem${
+                    validationProblems.length === 1 ? '' : 's'
+                  } on this sheet. Approving locks the splits as they stand.`
+                : bothValid
+                ? `Composition ${formatPct(compTotal)}% and recording ${formatPct(
+                    recTotal
+                  )}% both total 100%, with ${signedCount} of ${sheet.parties.length} parties signed.`
+                : `Composition is ${formatPct(compTotal)}% and recording is ${formatPct(
+                    recTotal
+                  )}%. A side that does not total 100% cannot be registered or paid out.`
             }
-            className="px-3 py-1.5 rounded-xl bg-[#241c33] hover:bg-[#342847] border border-[#ffd48a]/30 text-xs font-mono text-[#ffd48a] flex items-center gap-1.5 transition-colors self-start sm:self-auto"
-          >
-            <Zap className="w-3.5 h-3.5 text-[#ffd48a]" />
-            <span>Append Audit Event</span>
-          </button>
-        </div>
+            onApprove={() => runAction('approve')}
+            onRedo={() => runAction('redo')}
+            onInspect={
+              onInspectRaw
+                ? () => onInspectRaw('Rights stage output (raw)', rightsStage.output)
+                : undefined
+            }
+          />
 
-        {/* Ledger Event Nodes List */}
-        <div className="space-y-4 relative">
-          {/* Vertical Connecting Hash Line */}
-          <div className="absolute left-6 top-6 bottom-6 w-0.5 bg-[#342847] z-0 hidden sm:block" />
-
-          {ledgerEvents.map((ev, idx) => (
-            <div
-              key={ev.id}
-              className="relative z-10 p-4 sm:p-5 rounded-2xl bg-[#08060d] border border-[#241c33] hover:border-[#a56bd6]/40 transition-all space-y-2 sm:ml-4"
-            >
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#191324] pb-2">
-                <div className="flex items-center gap-2">
-                  <span className="w-6 h-6 rounded-full bg-[#a56bd6]/20 text-[#a56bd6] border border-[#a56bd6]/40 flex items-center justify-center font-mono text-[10px] font-bold">
-                    #{idx + 1}
-                  </span>
-                  <span className="font-mono text-xs font-bold uppercase tracking-wider text-[#ffd48a]">
-                    {ev.event_type.replace('_', ' ')}
-                  </span>
-                </div>
-                <span className="text-[10px] font-mono text-[#6d6183]">
-                  {new Date(ev.created_at).toLocaleString()}
-                </span>
-              </div>
-
-              {/* Payload Summary */}
-              <div className="text-xs font-serif text-[#f5efe6] py-1">
-                {JSON.stringify(ev.payload)}
-              </div>
-
-              {/* Cryptographic Hash Pair (prev_hash -> hash) */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-2 pt-2 border-t border-[#191324] font-mono text-[10px]">
-                <div className="flex items-center gap-1.5 text-[#6d6183]">
-                  <span className="uppercase text-[9px] font-bold text-[#a294b8]">prev_hash:</span>
-                  <span className="truncate text-[#8d82a1]">{ev.prev_hash}</span>
-                </div>
-                <div className="flex items-center gap-1.5 text-[#43c9a0]">
-                  <span className="uppercase text-[9px] font-bold text-[#43c9a0]">hash:</span>
-                  <span className="truncate font-bold">{ev.hash}</span>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Human Checkpoint Card */}
-      {splitData && (
-        <HumanCheckpointCard
-          title="Digital Split Agreement & Royalty Lock Sign-Off"
-          recommendation={
-            isBothSplitsValid && !isCoverBlocked
-              ? 'Composition and Sound Recording splits both sum to 100%, and cover clearance rules are verified. Ready for legal lock and digital signature execution.'
-              : `Splits or clearance incomplete: Composition (${compTotal}%), Recording (${recTotal}%)${
-                  isCoverBlocked ? ', COVER RELEASE BLOCKED' : ''
-                }. Adjust sliders to 100% and satisfy cover clearance.`
-          }
-          status={splitData.checkpointStatus}
-          agentName="GHARANA Legal & Rights Agent"
-          onApprove={handleApproveCheckpoint}
-          onReject={handleRejectCheckpoint}
-          onInspectRawPayload={() =>
-            onInspectRaw('Split Governance Wire Payload', buildSplitSheetWirePayload())
-          }
-        />
+          <div className="flex items-center gap-2 text-[10px] font-mono text-dim px-1">
+            <Users className="w-3.5 h-3.5" />
+            <span>
+              run {ctx.run?.id} • template {template} • run status {ctx.run?.status} • stage finished{' '}
+              {formatTimestamp(rightsStage.finished_at)}
+            </span>
+          </div>
+        </>
       )}
     </div>
   );

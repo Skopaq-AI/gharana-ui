@@ -1,15 +1,54 @@
-export type Language = 'Telugu' | 'Tamil' | 'Hindi' | 'Punjabi' | 'Malayalam' | 'Kannada' | 'Bengali' | 'English' | 'Multi-Language';
+import type {
+  ArtifactRef,
+  PipelineRun,
+  Project,
+  QCReport,
+  ReadinessScore,
+  StageResult,
+} from './lib/api';
+
+/**
+ * Release language. English first because that is now the primary market, but
+ * the list is deliberately not a closed world: a catalogue that only admits
+ * languages someone thought of in advance rejects the artist it was trying to
+ * serve. `string` keeps an unlisted language renderable instead of unrepresentable.
+ */
+export type Language =
+  | 'English'
+  | 'Spanish'
+  | 'Portuguese'
+  | 'French'
+  | 'German'
+  | 'Korean'
+  | 'Japanese'
+  | 'Hindi'
+  | 'Telugu'
+  | 'Tamil'
+  | 'Punjabi'
+  | 'Multi-Language'
+  | (string & {});
 
 export type CheckpointStatus = 'pending_artist_approval' | 'approved' | 'rejected' | 'modified';
 
+/**
+ * Measured audio values.
+ *
+ * ONLY `integratedLufs` and `truePeakDbtp` are ever populated by the console,
+ * and only from a real QCReport produced by the qc_analysis stage of a
+ * pipeline run (BS.1770 integrated loudness / true peak). Every other field
+ * here is measurable in principle but is NOT returned by the gateway today —
+ * leave it `undefined` and render "not measured yet". Never fill one in.
+ */
 export interface AudioMetrics {
-  integratedLufs?: number; // e.g. -13.8 LUFS
-  truePeakDbtp?: number;   // e.g. -0.8 dBTP
-  dynamicRangeLu?: number; // e.g. 8.4 LU
-  stereoWidth?: number;    // e.g. 1.05
-  sampleRateHz?: number;   // e.g. 48000
-  bitDepth?: number;       // e.g. 24
-  frequencyBins?: {        // Real measured frequency energy bins (dB)
+  integratedLufs?: number; // QCReport.lufs_integrated
+  truePeakDbtp?: number;   // QCReport.true_peak_db
+  // --- Not returned by the gateway. Always undefined today. ---------------
+  dynamicRangeLu?: number;
+  stereoWidth?: number;
+  sampleRateHz?: number;
+  bitDepth?: number;
+  /** Per-band energy (dB). Nothing measures this yet. */
+  frequencyBins?: {
     subBass: number;       // 20-60 Hz
     bass: number;          // 60-250 Hz
     lowMid: number;        // 250-500 Hz
@@ -17,7 +56,8 @@ export interface AudioMetrics {
     highMid: number;       // 2-6 kHz
     highs: number;         // 6-20 kHz
   };
-  lufsOverTime?: number[]; // Real measured LUFS values over track duration seconds
+  /** Short-term loudness series. The QC report carries no time series. */
+  lufsOverTime?: number[];
 }
 
 export interface PlatformCompliance {
@@ -212,6 +252,31 @@ export interface TrackItem {
 
   // Raw Agent Inspection Payloads
   rawAgentPayloads: Record<string, any>;
+
+  // -------------------------------------------------------------------------
+  // Real backend data, attached by App.tsx.
+  //
+  // A TrackItem is now a *view model over a gateway Project* — App builds it in
+  // projectToTrack() from listProjects/listArtifacts/getRun. The fields below
+  // are the untranslated wire objects, so any component that needs the truth
+  // (rather than the legacy presentational shape above) can read them straight
+  // off the track without fetching anything itself.
+  // -------------------------------------------------------------------------
+
+  /** Gateway project id. Identical to `id` for API-backed tracks. */
+  projectId?: string;
+  /** The gateway Project row this view model was built from. */
+  project?: Project;
+  /** Artifacts uploaded to this project (audio bounces, masters, reports...). */
+  artifacts?: ArtifactRef[];
+  /** Most recent pipeline run for this project, as returned by getRun(). */
+  activeRun?: PipelineRun | null;
+  /** Output of the qc_analysis stage. `null` until that stage has produced one. */
+  qcReport?: QCReport | null;
+  /** Output of the anr_score stage. `null` until that stage has produced one. */
+  readiness?: ReadinessScore | null;
+  /** activeRun.stages keyed by stage name, for convenience. */
+  stageOutputs?: Record<string, StageResult>;
 }
 
 export type ActiveTab = 'overview' | 'mix_qc' | 'ar_feedback' | 'lyrics' | 'splits' | 'release' | 'growth' | 'marketplace' | 'settings';

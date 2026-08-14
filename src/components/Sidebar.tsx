@@ -14,11 +14,11 @@ import {
   Flame
 } from 'lucide-react';
 import { TrackItem, ActiveTab } from '../types';
-import { SidebarNotificationFeed } from './SidebarNotificationFeed';
 
 interface SidebarProps {
   tracks: TrackItem[];
-  activeTrack: TrackItem;
+  /** null until a project is selected (or while projects are still loading). */
+  activeTrack: TrackItem | null;
   activeTab: ActiveTab;
   onSelectTab: (tab: ActiveTab) => void;
   onSelectTrack: (trackId: string) => void;
@@ -40,6 +40,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenMobileApproval
 }) => {
   const menuItems = [
+    // First in the list because it is the front door: an artist describes what
+    // they want in a sentence and gets a plan, instead of learning what a
+    // pipeline template is before the software will talk to them.
+    { id: 'overview' as ActiveTab, label: 'Start Here', category: 'Release', icon: Sparkles },
     { id: 'mix_qc' as ActiveTab, label: 'Mix QC & Mastering', category: 'Audio Production', icon: Sliders },
     { id: 'ar_feedback' as ActiveTab, label: 'A&R Direction', category: 'Audio Production', icon: Sparkles },
     { id: 'lyrics' as ActiveTab, label: 'Lyrics & Meter', category: 'Creative & Prosody', icon: BookOpen },
@@ -52,25 +56,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <aside
-      className={`bg-[#0d0a14]/95 border-r border-[#241c33] transition-all duration-300 flex flex-col justify-between flex-shrink-0 z-30 relative select-none ${
+      className={`bg-bg/95 border-r border-line transition-all duration-300 flex flex-col justify-between flex-shrink-0 z-30 relative select-none ${
         isCollapsed ? 'w-16 md:w-20' : 'w-72'
       }`}
     >
       
       {/* Top Header & Brand */}
       <div>
-        <div className="p-4 flex items-center justify-between border-b border-[#241c33]">
+        <div className="p-4 flex items-center justify-between border-b border-line">
           
           {!isCollapsed && (
             <div className="flex items-center gap-2.5 overflow-hidden">
-              <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-[#f2542d] to-[#ffd48a] flex items-center justify-center shadow-lg shadow-[#f2542d]/20 flex-shrink-0">
-                <Music2 className="w-4 h-4 text-[#08060d] font-bold" />
+              <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-accent to-caution flex items-center justify-center shadow-lg shadow-[var(--accent-dim)] flex-shrink-0">
+                <Music2 className="w-4 h-4 text-bg font-bold" />
               </div>
               <div className="truncate">
-                <span className="font-serif font-bold text-sm tracking-wide text-[#f5efe6] block truncate">
+                <span className="font-serif font-bold text-sm tracking-wide text-ink block truncate">
                   GHARANA
                 </span>
-                <span className="text-[9px] font-mono text-[#a294b8] uppercase tracking-wider block">
+                <span className="text-[9px] font-mono text-muted uppercase tracking-wider block">
                   AI Music Studio
                 </span>
               </div>
@@ -79,8 +83,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
           {isCollapsed && (
             <div className="w-full flex justify-center">
-              <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-[#f2542d] to-[#ffd48a] flex items-center justify-center shadow-lg shadow-[#f2542d]/20">
-                <Music2 className="w-4 h-4 text-[#08060d] font-bold" />
+              <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-accent to-caution flex items-center justify-center shadow-lg shadow-[var(--accent-dim)]">
+                <Music2 className="w-4 h-4 text-bg font-bold" />
               </div>
             </div>
           )}
@@ -88,7 +92,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {/* Collapse Toggle Button */}
           <button
             onClick={onToggleCollapse}
-            className={`p-1.5 rounded-xl bg-[#191324] hover:bg-[#241c33] text-[#a294b8] hover:text-[#f5efe6] transition-colors ${
+            className={`p-1.5 rounded-xl bg-surface hover:bg-line text-muted hover:text-ink transition-colors ${
               isCollapsed ? 'mt-2 mx-auto' : ''
             }`}
             title={isCollapsed ? 'Expand Navigation Sidebar' : 'Collapse Sidebar'}
@@ -109,14 +113,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 onClick={() => onSelectTab(item.id)}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-2xl text-xs font-sans transition-all relative group ${
                   isActive
-                    ? 'bg-[#191324] text-[#ffd48a] border border-[#ffd48a]/40 shadow-lg shadow-[#191324]/50 font-bold'
-                    : 'text-[#a294b8] hover:text-[#f5efe6] hover:bg-[#120e1b]'
+                    ? 'bg-surface text-caution border border-caution/40 shadow-lg shadow-surface/50 font-bold'
+                    : 'text-muted hover:text-ink hover:bg-panel'
                 }`}
                 title={isCollapsed ? item.label : undefined}
               >
                 <Icon
                   className={`w-4 h-4 flex-shrink-0 transition-colors ${
-                    isActive ? 'text-[#f2542d]' : 'text-[#a294b8] group-hover:text-[#f5efe6]'
+                    isActive ? 'text-accent' : 'text-muted group-hover:text-ink'
                   }`}
                 />
 
@@ -129,7 +133,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 {/* Notification Badge for Checkpoints */}
                 {item.id === 'mix_qc' && pendingCheckpointsCount > 0 && (
                   <span
-                    className={`px-1.5 py-0.5 rounded-full bg-[#f2542d] text-white font-mono text-[9px] font-bold flex-shrink-0 ${
+                    className={`px-1.5 py-0.5 rounded-full bg-accent text-accent-on font-mono text-[9px] font-bold flex-shrink-0 ${
                       isCollapsed ? 'absolute top-1.5 right-1.5 text-[8px] px-1 py-0' : ''
                     }`}
                   >
@@ -139,7 +143,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
                 {/* Collapsed Tooltip Hover */}
                 {isCollapsed && (
-                  <div className="absolute left-full ml-3 px-2.5 py-1.5 bg-[#120e1b] border border-[#342847] text-[#f5efe6] font-mono text-[11px] rounded-xl whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50 shadow-xl">
+                  <div className="absolute left-full ml-3 px-2.5 py-1.5 bg-panel border border-line-strong text-ink font-mono text-[11px] rounded-xl whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50 shadow-xl">
                     {item.label}
                   </div>
                 )}
@@ -149,31 +153,67 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </nav>
       </div>
 
-      {/* Notification Feed in Sidebar */}
-      <SidebarNotificationFeed
-        tracks={tracks}
-        activeTrack={activeTrack}
-        onSelectTab={onSelectTab}
-        onSelectTrack={onSelectTrack}
-        onOpenMobileApproval={onOpenMobileApproval}
-        isCollapsed={isCollapsed}
-      />
+      {/*
+        Approval feed.
+
+        SidebarNotificationFeed is NOT mounted yet. Its notification list is
+        hardcoded, and one entry states a measurement:
+
+          SidebarNotificationFeed.tsx:62
+          `True Peak -0.8 dBTP, -13.8 LUFS. Signature required before DSP release.`
+
+        Neither number came from anywhere. It would render inches away from the
+        real measured values in the player bar, which are currently different —
+        exactly the failure this product cannot ship. The feed goes back the
+        moment it derives its items from the run's stages (a stage in
+        `awaiting_approval` is a pending approval; its output carries the
+        figures) instead of from that literal.
+
+        Until then the sidebar states what is actually known: the count of
+        stages waiting on a human, which comes straight off the run.
+      */}
+      {!isCollapsed && (
+        <div className="px-3 py-4">
+          <div className="p-3 rounded-2xl bg-panel border border-line font-mono text-[10px] text-muted leading-relaxed space-y-1">
+            {!activeTrack ? (
+              <p>No project selected — pick one in the header to see its checkpoints.</p>
+            ) : pendingCheckpointsCount > 0 ? (
+              <>
+                <p className="text-caution font-bold">
+                  {pendingCheckpointsCount} stage{pendingCheckpointsCount === 1 ? '' : 's'} awaiting your approval
+                </p>
+                <p>Open Mix QC &amp; Mastering to review the checkpoint.</p>
+                {onOpenMobileApproval && (
+                  <button
+                    onClick={onOpenMobileApproval}
+                    className="mt-1 w-full px-2.5 py-1.5 rounded-xl bg-whatsapp/10 hover:bg-whatsapp/20 border border-whatsapp/30 text-whatsapp transition-colors"
+                  >
+                    Send WhatsApp Mobile Nudge
+                  </button>
+                )}
+              </>
+            ) : (
+              <p>No stage is waiting on you right now.</p>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Footer / System Info */}
-      <div className="p-3 border-t border-[#241c33] bg-[#08060d]/60">
+      <div className="p-3 border-t border-line bg-bg/60">
         {!isCollapsed ? (
-          <div className="p-2.5 rounded-2xl bg-[#120e1b] border border-[#241c33] space-y-0.5 font-mono text-[10px]">
-            <div className="flex items-center justify-between text-[#a294b8]">
-              <span className="flex items-center gap-1 text-[#ffd48a]">
-                <Flame className="w-3 h-3 text-[#f2542d]" />
+          <div className="p-2.5 rounded-2xl bg-panel border border-line space-y-0.5 font-mono text-[10px]">
+            <div className="flex items-center justify-between text-muted">
+              <span className="flex items-center gap-1 text-caution">
+                <Flame className="w-3 h-3 text-accent" />
                 GHARANA Core
               </span>
-              <span className="text-[#43c9a0]">v2.4 Active</span>
+              <span className="text-accent">v2.4 Active</span>
             </div>
-            <p className="text-[#6d6183] text-[9px]">Phone-Native Audio Pipeline</p>
+            <p className="text-dim text-[9px]">Phone-Native Audio Pipeline</p>
           </div>
         ) : (
-          <div className="flex justify-center text-[#f2542d]" title="GHARANA Core v2.4 Active">
+          <div className="flex justify-center text-accent" title="GHARANA Core v2.4 Active">
             <Flame className="w-4 h-4" />
           </div>
         )}
