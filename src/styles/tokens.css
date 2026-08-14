@@ -56,11 +56,169 @@
  * It was lightened along its own hue until small text passed.
  */
 
+/*
+ * THREE THEME STATES, NOT TWO
+ * ---------------------------
+ * A viewer is in one of three states and the CSS has to answer all of them:
+ *
+ *   no data-theme attribute   follow the OS          (the default, "auto")
+ *   data-theme="light"        forced light           (beats a dark OS)
+ *   data-theme="dark"         forced dark            (beats a light OS)
+ *
+ * So `:root` carries the COMPLETE light palette, the media query redefines the
+ * tokens for a dark OS *guarded* by :not([data-theme="light"]), and the
+ * [data-theme="dark"] block redefines them again so the toggle wins in the
+ * other direction too.
+ *
+ * The rule that keeps this honest: never define a colour only inside a media
+ * query or an attribute block. A token whose only definition lives behind
+ * [data-theme] simply does not exist in the un-stamped state, and the page
+ * renders one theme's text on the other theme's ground — which is the classic
+ * way a themed app ends up with invisible text.
+ *
+ * EVERY VALUE BELOW WAS MEASURED
+ * ------------------------------
+ * Contrast against that theme's own --bg, WCAG 2.1 relative luminance, ratios
+ * in the comments. The two palettes are NOT inversions of each other: the
+ * accent is a different vermilion in each, and the text colour that sits on it
+ * flips from ink to white. scripts/check-contrast.mjs re-measures all of this
+ * in CI, because a palette is only as good as the last edit to it.
+ */
+
 :root {
   /* -- ground ------------------------------------------------------------ */
-  /* Ink, not black. The purple bias is what separates a chosen dark from the
-     #0a0a0a that every generated dashboard ships. Warmth stays out of the
-     panels so meters and waveforms still read clean against them. */
+  /* Parchment with a violet cast, so it reads as the same world as the dark
+     theme rather than a generic light mode bolted on. Deliberately NOT the
+     #f4f1ea cream that every generated page ships. */
+  --bg: #f6f3f7;
+  --panel: #efeaf1;
+  --surface: #e9e3ec;
+  --surface-raised: #e1dae5;
+  --border: #ddd5e0;
+  --border-strong: #c6bbcd;
+
+  /* -- text -------------------------------------------------------------- */
+  --text: #1a1520;        /* 16.28:1 */
+  --text-muted: #574d61;  /* 7.23:1 */
+  --text-dim: #6b6076;    /* 5.36:1 */
+  --text-absent: #7d7288; /* 4.35:1, large or non-essential text only */
+
+  /* -- accent ------------------------------------------------------------- */
+  /* DARKER than the dark theme's vermilion, and this is the whole reason
+     --accent-on exists. #f2542d scores 3.14:1 on this ground and fails as
+     text; #c53a17 is 4.78:1 and passes. The text colour ON it also flips —
+     white is 5.26:1 here, where the dark theme uses ink. Never write a colour
+     onto --accent by hand; the pairing differs per theme. */
+  --accent: #c53a17;
+  --accent-hover: #a82f12;
+  --accent-on: #ffffff;   /* WHITE here. 5.26:1. Ink would be 3.4:1 and fail. */
+  --accent-dim: rgba(197, 58, 23, 0.1);
+  --accent-border: rgba(197, 58, 23, 0.35);
+
+  /* -- status ------------------------------------------------------------- */
+  --blocking: #c4392c;    /* 4.81:1 */
+  --blocking-bg: rgba(196, 57, 44, 0.08);
+  --blocking-border: rgba(196, 57, 44, 0.35);
+  --blocking-on: #ffffff;
+  --caution: #8a6212;     /* 4.97:1 — amber is unreadable on light at full
+                             chroma, so this is the ochre end of saffron */
+  --caution-bg: rgba(138, 98, 18, 0.08);
+  --caution-border: rgba(138, 98, 18, 0.35);
+  --caution-on: #ffffff;
+  --ok: #0a6653;          /* 6.28:1 */
+  --ok-bg: rgba(10, 102, 83, 0.08);
+  --ok-border: rgba(10, 102, 83, 0.35);
+  --ok-on: #ffffff;
+
+  /* -- categorical ------------------------------------------------------- */
+  --info: #6d3fa0;        /* 6.65:1 */
+  --info-bg: rgba(109, 63, 160, 0.08);
+  --info-border: rgba(109, 63, 160, 0.3);
+
+  /* -- third-party brand ------------------------------------------------- */
+  /* WhatsApp's own green is fixed by them and is 2.3:1 on this ground, so it
+     is never used as text here — only as a fill behind --accent-on. */
+  --brand-whatsapp: #25d366;
+
+  /* -- decorative media --------------------------------------------------- */
+  /* How loud photographs and clips are allowed to be behind type. These images
+  are all dark, low-key studio shots: at the dark theme's opacity they
+  composite over a light ground as mid-grey, and dark text on mid-grey fails.
+  That is exactly how a themed page ends up with unreadable sections, so
+  light mode turns them down until they are texture again. */
+  --media-still: 0.1;
+  --media-band: 0.14;
+  --media-hero: 0.22;
+
+
+  /* -- type -------------------------------------------------------------- */
+  --font-headline: "Fraunces", Georgia, serif;
+  --font-body: "Instrument Sans", system-ui, sans-serif;
+  /* Semantic, not stylistic: monospace is the signal that a value came from
+     measurement rather than from a model. */
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  /* -- shape ------------------------------------------------------------- */
+  --radius: 0.75rem;
+  --radius-lg: 1rem;
+  --radius-xl: 1.5rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    /* -- ground ------------------------------------------------------------ */
+    --bg: #08060d;
+    --panel: #0d0a14;
+    --surface: #120e1b;
+    --surface-raised: #191324;
+    --border: #241c33;
+    --border-strong: #342847;
+
+    /* -- text -------------------------------------------------------------- */
+    --text: #f5efe6;        /* 17.63:1 */
+    --text-muted: #a294b8;  /* 7.16:1 */
+    --text-dim: #8577a0;    /* 4.94:1 — lightened from Night Raga's #6d6183 (3.54:1) */
+    --text-absent: #75688c; /* 3.95:1, large or non-essential text only */
+
+    /* -- accent: a thing waiting on a person -------------------------------- */
+    --accent: #f2542d;
+    --accent-hover: #ff7a4d;
+    --accent-on: #08060d;   /* INK. 5.84:1. White is 3.45:1 and fails. */
+    --accent-dim: rgba(242, 84, 45, 0.12);
+    --accent-border: rgba(242, 84, 45, 0.4);
+
+    /* -- status ------------------------------------------------------------- */
+    --blocking: #ff5c5c;    /* 6.66:1 */
+    --blocking-bg: rgba(255, 92, 92, 0.1);
+    --blocking-border: rgba(255, 92, 92, 0.4);
+    --blocking-on: #08060d;
+    --caution: #f5b544;     /* 11.11:1 */
+    --caution-bg: rgba(245, 181, 68, 0.1);
+    --caution-border: rgba(245, 181, 68, 0.4);
+    --caution-on: #08060d;
+    --ok: #43c9a0;          /* 9.69:1 */
+    --ok-bg: rgba(67, 201, 160, 0.1);
+    --ok-border: rgba(67, 201, 160, 0.4);
+    --ok-on: #08060d;
+
+    /* -- categorical ------------------------------------------------------- */
+    --info: #b98ae0;        /* 7.46:1 */
+    --info-bg: rgba(185, 138, 224, 0.1);
+    --info-border: rgba(185, 138, 224, 0.35);
+
+    /* -- third-party brand ------------------------------------------------- */
+    --brand-whatsapp: #25d366;
+
+    /* -- decorative media --------------------------------------------------- */
+    --media-still: 0.4;
+    --media-band: 0.45;
+    --media-hero: 0.7;
+
+  }
+}
+
+:root[data-theme="dark"] {
+  /* -- ground ------------------------------------------------------------ */
   --bg: #08060d;
   --panel: #0d0a14;
   --surface: #120e1b;
@@ -69,80 +227,43 @@
   --border-strong: #342847;
 
   /* -- text -------------------------------------------------------------- */
-  /* Parchment, not white — 17.63:1, and it stops the page glaring. */
-  --text: #f5efe6;
-  --text-muted: #a294b8; /* 7.16:1 */
-  --text-dim: #8577a0; /* 4.94:1 — lightened from Night Raga's #6d6183 (3.54:1),
-                          which fails at the size this console sets mono labels */
-  /* "Not measured" and other deliberate absences. Quiet, never alarming — an
-     absent measurement is a fact about the world, not an error the artist
-     caused, and must never be mistaken for a value. */
-  --text-absent: #75688c; /* 3.95:1, and only ever on large or non-essential text */
+  --text: #f5efe6;        /* 17.63:1 */
+  --text-muted: #a294b8;  /* 7.16:1 */
+  --text-dim: #8577a0;    /* 4.94:1 — lightened from Night Raga's #6d6183 (3.54:1) */
+  --text-absent: #75688c; /* 3.95:1, large or non-essential text only */
 
   /* -- accent: a thing waiting on a person -------------------------------- */
-  /* Vermilion. Used scarcely: the primary action, and a checkpoint that has
-     stopped and is waiting for you. Never decoration, and never for reporting
-     that a measurement was fine — that is jade, below. */
   --accent: #f2542d;
   --accent-hover: #ff7a4d;
-  --accent-on: #08060d; /* text ON accent. Ink, at 5.84:1. White is 3.45:1 and
-                           fails; this pairing is measured, not chosen. */
+  --accent-on: #08060d;   /* INK. 5.84:1. White is 3.45:1 and fails. */
   --accent-dim: rgba(242, 84, 45, 0.12);
   --accent-border: rgba(242, 84, 45, 0.4);
 
   /* -- status ------------------------------------------------------------- */
-  /* Red is reserved for release-stopping problems. If everything can be red,
-     the artist learns to approve past red, and the blocking gate is decorative.
-     Held apart from vermilion in hue so "blocked" never reads as "your turn". */
-  --blocking: #ff5c5c; /* 6.66:1 */
+  --blocking: #ff5c5c;    /* 6.66:1 */
   --blocking-bg: rgba(255, 92, 92, 0.1);
   --blocking-border: rgba(255, 92, 92, 0.4);
   --blocking-on: #08060d;
-
-  /* Saffron is "read this before you approve", never "you cannot proceed". */
-  --caution: #f5b544; /* 11.11:1 */
+  --caution: #f5b544;     /* 11.11:1 */
   --caution-bg: rgba(245, 181, 68, 0.1);
   --caution-border: rgba(245, 181, 68, 0.4);
   --caution-on: #08060d;
-
-  /* Jade: the machine reporting that something measured within spec. The one
-     colour on this page that means "a number came back and it was fine". */
-  --ok: #43c9a0; /* 9.69:1 */
+  --ok: #43c9a0;          /* 9.69:1 */
   --ok-bg: rgba(67, 201, 160, 0.1);
   --ok-border: rgba(67, 201, 160, 0.4);
   --ok-on: #08060d;
 
   /* -- categorical ------------------------------------------------------- */
-  /* For labelling KINDS of thing (which agent, which stage), never for saying
-     whether something is good or bad — status has its colours above. Plum sits
-     off the warm/cool axis the status colours use, so it cannot be misread as
-     one of them. */
-  --info: #b98ae0; /* 7.46:1 */
+  --info: #b98ae0;        /* 7.46:1 */
   --info-bg: rgba(185, 138, 224, 0.1);
   --info-border: rgba(185, 138, 224, 0.35);
 
   /* -- third-party brand ------------------------------------------------- */
-  /* WhatsApp's own green, used ONLY on the WhatsApp affordance. A brand mark is
-     not part of this palette and must not be borrowed for anything else — and
-     note it is NOT --ok, however similar it looks. */
   --brand-whatsapp: #25d366;
 
-  /* -- type -------------------------------------------------------------- */
-  /* Fraunces for display: a serif with real character, which is what stops a
-     dark interface reading as a terminal. Instrument Sans carries prose.
-     Space Grotesk and Inter were the previous pair and are the two faces every
-     generated page reaches for. */
-  --font-headline: "Fraunces", Georgia, serif;
-  --font-body: "Instrument Sans", system-ui, sans-serif;
-  /* Semantic, not stylistic. Monospace is the signal that a value came from
-     measurement rather than from a model: every measured number, unit,
-     timestamp, id and locator chip is mono, and prose never is. That is the
-     product's central claim made visible. */
-  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  /* -- decorative media --------------------------------------------------- */
+  --media-still: 0.4;
+  --media-band: 0.45;
+  --media-hero: 0.7;
 
-  /* -- shape ------------------------------------------------------------- */
-  /* Closer to a hardware faceplate than a web card. */
-  --radius: 0.75rem;
-  --radius-lg: 1rem;
-  --radius-xl: 1.5rem;
 }

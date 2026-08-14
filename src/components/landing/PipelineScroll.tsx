@@ -168,7 +168,8 @@ const Stage: React.FC<{
           alt=""
           aria-hidden="true"
           loading="lazy"
-          className="absolute inset-0 h-full w-full object-cover object-right opacity-40 transition-opacity duration-500 group-hover:opacity-60"
+          style={{ opacity: "var(--media-still)" }}
+          className="absolute inset-0 h-full w-full object-cover object-right transition-opacity duration-500"
         />
         <div
           aria-hidden="true"

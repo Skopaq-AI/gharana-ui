@@ -65,7 +65,8 @@ export const VideoBand: React.FC<{
         playsInline
         preload="none"
         poster={poster}
-        className="absolute inset-0 h-full w-full object-cover opacity-45"
+        style={{ opacity: "var(--media-band)" }}
+        className="absolute inset-0 h-full w-full object-cover"
       >
         <source src={`/media/${clip}.webm`} type="video/webm" />
         <source src={`/media/${clip}.mp4`} type="video/mp4" />

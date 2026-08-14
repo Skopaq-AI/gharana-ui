@@ -27,10 +27,13 @@
 import React from 'react';
 import { useReducedMotion } from 'motion/react';
 
-export const AmbientLoop: React.FC<{ className?: string; clip?: 'console' | 'hands' }> = ({
-  className,
-  clip = 'console',
-}) => {
+export const AmbientLoop: React.FC<{
+  className?: string;
+  clip?: 'console' | 'hands';
+  /** Loudness comes from the caller because it is theme-dependent: the same
+      opacity that reads as texture on ink reads as mid-grey mud on parchment. */
+  style?: React.CSSProperties;
+}> = ({ className, clip = 'console', style }) => {
   const base = clip === 'hands' ? '/studio-hands' : '/console-ambient';
   const reduced = useReducedMotion();
   const ref = React.useRef<HTMLVideoElement | null>(null);
@@ -66,6 +69,7 @@ export const AmbientLoop: React.FC<{ className?: string; clip?: 'console' | 'han
   return (
     <video
       ref={ref}
+      style={style}
       muted
       loop
       playsInline

@@ -87,7 +87,8 @@ export const AgentGrid: React.FC = () => {
         alt=""
         aria-hidden="true"
         loading="lazy"
-        className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-25"
+        style={{ opacity: "var(--media-still)" }}
+        className="pointer-events-none absolute inset-0 h-full w-full object-cover"
       />
       <div aria-hidden="true" className="absolute inset-0 bg-gradient-to-r from-bg via-bg/85 to-bg/40" />
       <div className="relative mx-auto max-w-[1600px] px-5 sm:px-8">

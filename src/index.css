@@ -42,6 +42,12 @@
   --color-info: var(--info);
   --color-whatsapp: var(--brand-whatsapp);
 
+  /* Decorative-media loudness. Not a colour, but theme-dependent for the same
+     reason: a value tuned for one ground is wrong on the other. */
+  --opacity-still: var(--media-still);
+  --opacity-band: var(--media-band);
+  --opacity-hero: var(--media-hero);
+
   --font-headline: var(--font-headline);
   --font-body: var(--font-body);
   --font-mono: var(--font-mono);

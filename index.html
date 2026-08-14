@@ -20,6 +20,27 @@
       href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400..800&family=Instrument+Sans:wght@400..700&family=JetBrains+Mono:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
+    <!--
+      Applied BEFORE first paint, on purpose.
+
+      React mounts after the stylesheet has already painted, so setting the
+      theme in a component means a dark-mode viewer sees a white page flash on
+      every single load. Blocking and inline is the correct shape here: it is
+      four lines, it must run before the body renders, and deferring it is the
+      bug.
+
+      "auto" deliberately stamps NOTHING and lets prefers-color-scheme answer,
+      which also means a viewer who flips their OS theme with the tab open sees
+      it change live rather than on next reload.
+    -->
+    <script>
+      try {
+        var t = localStorage.getItem('gharana-theme');
+        if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+      } catch (e) {
+        /* private mode throws on access; the media query still applies */
+      }
+    </script>
   </head>
   <body class="bg-bg text-ink selection:bg-accent selection:text-accent-on min-h-screen">
     <div id="root"></div>

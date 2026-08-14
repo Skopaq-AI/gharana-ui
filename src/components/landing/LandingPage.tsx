@@ -32,6 +32,7 @@ import { AgentGrid, SiteFooter } from './SiteFooter';
 import { VideoBand } from './Showcase';
 import { Refusals } from './Refusals';
 import { AmbientLoop } from './AmbientLoop';
+import { ThemeToggle } from '../ThemeToggle';
 
 export interface LandingPageProps {
   /**
@@ -99,9 +100,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterConsole }) => {
               the label you never signed with
             </span>
           </div>
-          <Button variant="primary" size="sm" onClick={enterConsole}>
-            Open console <ArrowRight className="h-3.5 w-3.5" />
-          </Button>
+          <div className="flex items-center gap-3">
+            <ThemeToggle />
+            <Button variant="primary" size="sm" onClick={enterConsole}>
+              Open console <ArrowRight className="h-3.5 w-3.5" />
+            </Button>
+          </div>
         </div>
       </nav>
 
@@ -135,7 +139,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterConsole }) => {
           playsInline
           preload="metadata"
           poster="/media/faders-poster.webp"
-          className="pointer-events-none absolute inset-y-0 right-0 h-full w-full object-cover object-right opacity-70 md:w-[68%]"
+          style={{ opacity: "var(--media-hero)" }}
+          className="pointer-events-none absolute inset-y-0 right-0 h-full w-full object-cover object-right md:w-[68%]"
         >
           <source src="/media/faders.webm" type="video/webm" />
           <source src="/media/faders.mp4" type="video/mp4" />
@@ -228,7 +233,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterConsole }) => {
             deciding. */}
         <AmbientLoop
           clip="hands"
-          className="pointer-events-none absolute right-0 top-0 h-full w-full object-cover opacity-[0.18] md:w-[55%]"
+          style={{ opacity: "var(--media-still)" }}
+          className="pointer-events-none absolute right-0 top-0 h-full w-full object-cover md:w-[55%]"
         />
         <div
           aria-hidden="true"
@@ -291,7 +297,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterConsole }) => {
           links to pages nobody wrote is the mock-data defect with better
           typography. */}
       <section className="relative overflow-hidden border-t border-line">
-        <AmbientLoop className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-30" />
+        <AmbientLoop style={{ opacity: "var(--media-band)" }}
+          className="pointer-events-none absolute inset-0 h-full w-full object-cover" />
         <div
           aria-hidden="true"
           className="absolute inset-0 bg-gradient-to-r from-bg via-bg/85 to-bg/40"

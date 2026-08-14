@@ -58,6 +58,13 @@ jobs:
 
       # The rule that made replacing the entire palette a one-file change.
       # Ported from the monorepo with the code it guards.
+      # A colour is the one design decision with an arithmetic answer, so it is
+      # checked like one — in BOTH themes, which are not inversions of each
+      # other. The palette this replaced justified itself on a contrast claim
+      # that was simply false and that nobody had measured.
+      - name: contrast, both themes
+        run: node scripts/check-contrast.mjs
+
       - name: design system holds
         run: node scripts/check-design-system.mjs
 

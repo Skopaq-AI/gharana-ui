@@ -12,6 +12,7 @@ import {
   RefreshCw
 } from 'lucide-react';
 import type { Project } from '../lib/api';
+import { ThemeToggle } from './ThemeToggle';
 
 interface HeaderProps {
   projects: Project[];
@@ -209,6 +210,11 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Right Side: Status Badges & Direct Actions */}
         <div className="flex items-center gap-2 flex-wrap justify-end min-w-0">
+
+          {/* Theme, in the console as well as on the landing page. An artist who
+              set light mode on the way in should not arrive in a dark console
+              with no way back. */}
+          <ThemeToggle className="flex-shrink-0" />
 
           {/* Subtle Studio Clock — first thing to go when space is tight */}
           <div className="hidden 2xl:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-panel border border-line text-xs font-mono text-muted">
