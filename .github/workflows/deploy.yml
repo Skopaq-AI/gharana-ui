@@ -66,6 +66,29 @@ jobs:
 
       - run: npm i -g @railway/cli@4
 
+      # Stamp BEFORE deploying, or the verify step below can never pass.
+      #
+      # /api/health reports GHARANA_VERSION, GHARANA_GIT_SHA and GHARANA_BUILT_AT
+      # — Railway service variables, not anything derived from the build. So a
+      # deploy that does not set them leaves the service truthfully reporting
+      # the previous stamp while running new code, which is indistinguishable
+      # from a deploy that did not take.
+      #
+      # It was worse than stale when the console moved out of the monorepo: the
+      # stamp still held a commit from Skopaq-AI/gharana, a different repository
+      # entirely, so the console was reporting a sha that will never again
+      # correspond to anything it is running.
+      - name: Stamp the build identity
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          set -euo pipefail
+          version=$(node -p "require('./package.json').version")
+          railway variables --service "$SERVICE" \
+            --set "GHARANA_VERSION=${version}" \
+            --set "GHARANA_GIT_SHA=${GITHUB_SHA:0:7}" \
+            --set "GHARANA_BUILT_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
       - name: Deploy
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
