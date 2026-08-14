@@ -1,0 +1,113 @@
+# Put the console on Railway, and prove it arrived.
+#
+# WHY NOT RAILWAY'S GITHUB INTEGRATION
+# ------------------------------------
+# Connecting this repo as a Railway source is one click and needs no token, and
+# it was deliberately not done. That integration deploys every push to main
+# straight to production with no gate, no health check and no rollback — for a
+# marketing page that is fine, and this is the console artists log into.
+#
+# The backend's pipeline gates its deploys (verify wiring, snapshot, deploy,
+# verify the version is live, wait for private services, beta gate, end-to-end
+# smoke, roll back on failure). A frontend does not need all of that, but it
+# does need the part that catches the failure that actually happens: a build
+# that succeeds while the old container keeps serving. So this deploys, then
+# asks the running service which commit it is, and fails if the answer is not
+# this one.
+#
+# `railway up` uploads this repo as the build context. Railway builds it with
+# the service's RAILWAY_DOCKERFILE_PATH, which must be `Dockerfile` — the
+# Dockerfile is at this repo's root. It used to be `apps/console/Dockerfile`,
+# from when the console lived inside the monorepo, and a stale value there is
+# the one setting that makes every deploy here fail before it starts.
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-console # never two deploys at once
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  SERVICE: gharana-console
+  CONSOLE_URL: https://gharana-console-production.up.railway.app
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Fail here, loudly, rather than three steps later inside the CLI with a
+      # generic auth error. A deploy workflow that cannot deploy should say so
+      # in its first line.
+      - name: Check the token exists
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          if [ -z "${RAILWAY_TOKEN}" ]; then
+            echo "::error::RAILWAY_TOKEN is not set on this repository."
+            echo "It is the same token already present on Skopaq-AI/gharana."
+            echo "Settings -> Secrets and variables -> Actions -> New repository secret."
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - run: npm i -g @railway/cli@4
+
+      - name: Deploy
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: railway up --service "$SERVICE" --ci
+
+      # The step that matters. "Railway said SUCCESS" is a statement about a
+      # build; asking the running process which commit it is, is a statement
+      # about production. These differ exactly when it matters most — when a new
+      # container failed to come up and the old one is still answering, which
+      # looks identical from the outside until you ask.
+      - name: Verify the deployed commit is actually serving
+        run: |
+          set -uo pipefail
+          want="${GITHUB_SHA:0:7}"
+          echo "expecting commit ${want} at ${CONSOLE_URL}"
+          for i in $(seq 1 60); do
+            got=$(curl -fsS --max-time 10 "${CONSOLE_URL}/api/health" 2>/dev/null \
+                  | sed -n 's/.*"commit":"\([^"]*\)".*/\1/p') || got=""
+            case "$got" in
+              "$want"*)
+                echo "console is serving ${got} after $((i*5))s"
+                exit 0 ;;
+              "")
+                echo "  ${i}: no answer yet" ;;
+              *)
+                echo "  ${i}: still serving ${got}" ;;
+            esac
+            sleep 5
+          done
+          echo "::error::${CONSOLE_URL} never reported ${want}. The build may have"
+          echo "::error::succeeded while the previous container kept serving traffic."
+          exit 1
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Console deploy"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| commit | \`${GITHUB_SHA:0:7}\` |"
+            echo "| service | \`${SERVICE}\` |"
+            echo "| result | ${{ job.status }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
