@@ -56,6 +56,11 @@ jobs:
       - name: proxy carries no ambient authority
         run: node scripts/check-proxy-authority.mjs
 
+      # The rule that made replacing the entire palette a one-file change.
+      # Ported from the monorepo with the code it guards.
+      - name: design system holds
+        run: node scripts/check-design-system.mjs
+
       - name: typecheck
         run: npx tsc --noEmit
 
