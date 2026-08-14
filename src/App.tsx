@@ -57,6 +57,8 @@ import { ReleaseDeliveryTab } from './components/tabs/ReleaseDeliveryTab';
 import { GrowthTab } from './components/tabs/GrowthTab';
 import { AgentMarketplaceTab } from './components/tabs/AgentMarketplaceTab';
 import { SettingsTab } from './components/tabs/SettingsTab';
+import { LegalPage } from './components/legal/LegalPages';
+import { isLegalPath } from './lib/legal';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1161,6 +1163,12 @@ function ConsoleApp() {
  * session, so the two agree by construction.
  */
 export default function App() {
+  // Legal pages are real paths, not modals. server.ts serves index.html for any
+  // unmatched path, so the SPA is what resolves them — and they are checked
+  // BEFORE the console, because /terms?app should still be the terms.
+  const path = typeof window !== 'undefined' ? window.location.pathname : '/';
+  if (isLegalPath(path)) return <LegalPage path={path} />;
+
   const wantsConsole =
     typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('app');
 

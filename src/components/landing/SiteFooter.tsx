@@ -23,6 +23,7 @@
 import React, { useEffect, useState } from 'react';
 
 import { type InstalledAgent } from '../../lib/api';
+import { ENTITY } from '../../lib/legal';
 import type { FooterModalType } from './FooterModals';
 
 /** Short labels, LANDR-length, mapped from the capability strings we publish. */
@@ -135,12 +136,24 @@ const COLUMNS: { head: string; links: FooterLink[] }[] = [
     ],
   },
   {
+    // Real URLs, not modals. Every obligation behind these is an obligation to
+    // PUBLISH, and a modal cannot be linked, cited in an app-store submission,
+    // sent to a regulator, or bookmarked.
     head: 'Legal',
     links: [
-      { label: 'AI disclosure', modal: 'ai-disclosure' },
-      { label: 'Privacy', modal: 'privacy' },
+      { label: 'Terms of Use', href: '/terms' },
+      { label: 'Privacy Policy', href: '/privacy' },
+      { label: 'Grievance Redressal', href: '/grievance' },
+      { label: 'Refunds & Cancellation', href: '/refunds' },
+      { label: 'AI disclosure', href: '/ai-disclosure' },
+      { label: 'Contact', href: '/contact' },
+    ],
+  },
+  {
+    head: 'Company',
+    links: [
       { label: 'Your rights in your work', modal: 'rights' },
-      { label: 'Contact', modal: 'contact' },
+      { label: ENTITY.parentPortal.name, href: ENTITY.parentPortal.url },
     ],
   },
 ];
@@ -162,7 +175,7 @@ export const SiteFooter: React.FC<{ onOpenModal: (m: FooterModalType) => void }>
               the day the list exists. */}
         </div>
 
-        <nav className="grid gap-8 sm:grid-cols-3">
+        <nav className="grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
           {COLUMNS.map((col) => (
             <div key={col.head}>
               <h3 className="font-mono text-[10px] uppercase tracking-[0.14em] text-dim">

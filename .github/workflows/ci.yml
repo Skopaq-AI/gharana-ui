@@ -68,6 +68,13 @@ jobs:
       - name: design system holds
         run: node scripts/check-design-system.mjs
 
+      # Reports which entity facts the legal pages still lack. Warns rather
+      # than fails: the pages carry a visible unpublished banner while unfilled,
+      # so that is a consistent state. Use --strict in the deploy workflow on
+      # the day they are meant to be relied on.
+      - name: legal entity facts
+        run: node scripts/check-legal.mjs
+
       - name: typecheck
         run: npx tsc --noEmit
 

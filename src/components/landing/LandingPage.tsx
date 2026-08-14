@@ -105,6 +105,15 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onEnterConsole }) => {
             </span>
           </div>
           <div className="flex items-center gap-3">
+            {/* Reachable from the top of the page as well as the bottom. A
+                grievance route buried only in a footer is one people find after
+                they have already given up. */}
+            <a
+              href="/grievance"
+              className="hidden font-mono text-[11px] text-dim transition-colors hover:text-ink sm:inline"
+            >
+              legal
+            </a>
             <ThemeToggle />
             <Button variant="primary" size="sm" onClick={enterConsole}>
               Open console <ArrowRight className="h-3.5 w-3.5" />
